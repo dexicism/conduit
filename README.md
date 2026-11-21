@@ -1,0 +1,81 @@
+# Conduit
+
+A workflow automation platform I built to run on my own laptop for free. Drag steps onto a canvas, wire them up, hit publish. It handles the boring glue work: a Telegram bot that answers with AI, form answers that land in a Google Sheet, a chat page for a website, emails, calendar invites, scheduled jobs.
+
+What's in it:
+
+- **Visual editor:** 30-ish step types, a config panel generated from each step's schema, data references with a variable picker, undo/redo, copy/paste, sticky notes, auto-layout, auto-save with conflict handling.
+- **Execution engine:** test runs with live output, webhook / schedule / manual / form / chat / error / sub-workflow triggers, publishing, run history, sandboxed Code steps (isolated-vm), SSRF-safe HTTP steps.
+- **AI:** an Agent with tools and memory, Classify, Sentiment, Moderate and Extract steps, and a chat Builder that drafts workflows on the canvas. Runs on a free local model through Ollama, or on Claude if you have a key.
+- **Apps:** Telegram, Gmail, Google Sheets, Google Calendar, Google Drive, Slack, WhatsApp Business, PostgreSQL and SMTP. Every app action also works as an agent tool. Accounts are stored encrypted.
+- **Teams and billing:** workspaces with invites and roles, per-step credits, plans, Stripe subscriptions.
+- **Platform:** API keys and a public REST API (`/api/v1`), signed outgoing webhooks, an MCP server with OAuth 2.1 so AI assistants can read and edit workflows, two-step sign-in.
+
+## Requirements
+
+- Node.js 22.12+ (24.22+ recommended)
+- No Docker needed. The dev database runs the official `mongod` binary, which downloads automatically on first run.
+
+## Run locally
+
+From the repo root, run each command in its own terminal:
+
+```bash
+npm install
+npm run db        # MongoDB replica set on 127.0.0.1:27018 (keep running)
+npm run dev       # http://localhost:3000
+```
+
+On first run, create `apps/web/.env.local` from [apps/web/.env.example](apps/web/.env.example). Only `BETTER_AUTH_SECRET` is required.
+
+**Signing in without an email provider.** If `RESEND_API_KEY` and `SMTP_URL` are both unset, sign-in codes are written to a local outbox. Read it at <http://localhost:3000/dev/outbox>. The login screen links to it. This mode is refused in production.
+
+**Workflow runs.**
+
+- **In development:** the execution worker starts inside `npm run dev`, so nothing else needs to run.
+- **In production:** run it separately with `MONGODB_URI=... npm start -w worker`, and as many copies as you need. Set `CONDUIT_WORKER=off` on the web servers.
+- **Private addresses:** HTTP steps can't reach private or internal addresses unless `HTTP_ALLOW_PRIVATE_NETWORK=1`.
+
+**AI (Claude).** Set `ANTHROPIC_API_KEY` in `apps/web/.env.local`. The same key is needed wherever the worker runs.
+
+- **Without a key:** AI steps and the Builder are hidden.
+- **Local trial without a key:** `AI_PROVIDER=fake` turns on a rule-based test model, with no real intelligence. It's refused in production.
+- **Model choice:** each AI step picks Claude Opus 5.5 (default), Sonnet 5.5 or Haiku 5.5.
+- **Refusals:** on Opus and Sonnet, a request Claude declines is automatically retried on Anthropic's fallback model.
+
+**Connected apps.** Saved accounts are encrypted with `CONDUIT_ENCRYPTION_KEY`. It's required in production and must be the same on the web app and every worker. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Development creates one in `.data/encryption.key`.
+
+- **Google (Gmail, Sheets):** set `CONNECT_GOOGLE_CLIENT_ID` and `CONNECT_GOOGLE_CLIENT_SECRET`, and add `{BETTER_AUTH_URL}/api/credentials/oauth/callback` as a redirect URI. Enable the Gmail and Sheets APIs in the Google Cloud project. Without these, Google steps are hidden.
+- **Telegram triggers:** Telegram must be able to reach `BETTER_AUTH_URL` over public HTTPS.
+- **Databases and SMTP:** private and internal addresses are blocked unless `HTTP_ALLOW_PRIVATE_NETWORK=1`.
+
+**Billing (Stripe).** Set these to offer paid plans:
+- `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO` and `STRIPE_PRICE_MAX` (monthly subscription price IDs)
+
+Point a Stripe webhook at `{BETTER_AUTH_URL}/api/billing/webhook` with these events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted` and `invoice.paid`. Without these settings, everyone stays on the Free plan and upgrade buttons are hidden.
+
+**Google and GitHub sign-in.** Set the client ID and secret for either provider in `.env.local` and its button appears. Without them the button is hidden, so it is never a dead control.
+
+## Tests
+
+```bash
+npm test                 # unit + integration tests (core, nodes, engine, runtime)
+npm run typecheck        # all workspaces
+npm run e2e              # Playwright, needs `npm run db` running; starts its own server on :3100
+```
+
+The E2E suite signs in through the real OTP flow, using a separate `conduit_e2e` database and outbox.
+
+## Layout
+
+```
+apps/web        Next.js 16 app: marketing, auth, dashboard, REST API (/api/*)
+packages/core   Shared zod schemas, graph validation, expression references, error codes
+packages/nodes  Step definitions (fields, handles, examples), parameter + connection rules
+packages/engine Pure workflow runner + step executors + cron (unit-tested, no I/O)
+packages/runtime Job queue, worker, sandbox (isolated-vm), SSRF-safe HTTP, publish/triggers
+apps/worker     Standalone production worker
+scripts/        dev-db.mjs (local MongoDB)
+docs/           Architecture, database schema, API
+```

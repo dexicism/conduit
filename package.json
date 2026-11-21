@@ -1,0 +1,19 @@
+{
+  "name": "conduit",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "db": "node scripts/dev-db.mjs",
+    "dev": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "e2e": "npm run e2e -w web"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}
