@@ -8,6 +8,7 @@ export * from "./llm";
 export * from "./builder";
 export { createAnthropicLlm } from "./llm-anthropic";
 export { createFakeLlm } from "./llm-fake";
+export { createOllamaLlm, DEFAULT_OLLAMA_MODEL, DEFAULT_OLLAMA_URL } from "./llm-ollama";
 export * from "./vault";
 export * from "./oauth";
 export * from "./integrations";

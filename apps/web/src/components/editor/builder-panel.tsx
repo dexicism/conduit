@@ -122,6 +122,11 @@ export function BuilderPanel({ flush }: { flush: () => Promise<number | null> })
                 test model
               </span>
             )}
+            {provider === "ollama" && (
+              <span className="rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground" title="AI_PROVIDER=ollama: a free model running on this computer. Slower, and less reliable than Claude at building workflows.">
+                local model
+              </span>
+            )}
             <div className="ml-auto flex gap-1">
               {!!messages?.length && (
                 <Button variant="ghost" size="icon-sm" aria-label="Clear conversation" onClick={() => void clear()} disabled={pending}>

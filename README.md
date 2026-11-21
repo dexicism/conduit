@@ -36,9 +36,15 @@ On first run, create `apps/web/.env.local` from [apps/web/.env.example](apps/web
 - **In production:** run it separately with `MONGODB_URI=... npm start -w worker`, and as many copies as you need. Set `CONDUIT_WORKER=off` on the web servers.
 - **Private addresses:** HTTP steps can't reach private or internal addresses unless `HTTP_ALLOW_PRIVATE_NETWORK=1`.
 
-**AI (Claude).** Set `ANTHROPIC_API_KEY` in `apps/web/.env.local`. The same key is needed wherever the worker runs.
+**AI.** Two real providers. Set one in `apps/web/.env.local`, and the same settings wherever the worker runs.
 
-- **Without a key:** AI steps and the Builder are hidden.
+- **Free, on your own computer (Ollama):** install [Ollama](https://ollama.com), run `ollama pull qwen3:8b`, and set `AI_PROVIDER=ollama`.
+  - Every AI step and the Builder use that one model (`OLLAMA_MODEL`), whatever model the step names.
+  - It needs about 8 GB of free memory. It's slower than Claude and makes more mistakes building workflows.
+  - Test runs of AI steps don't use credits, since a local model costs nothing to run. Live runs use credits as usual.
+  - Other models that handle tools: `llama3.1:8b`, `qwen3:14b` (better, needs about 16 GB).
+- **Claude (paid per use):** set `ANTHROPIC_API_KEY`.
+- **Without either:** AI steps and the Builder are hidden.
 - **Local trial without a key:** `AI_PROVIDER=fake` turns on a rule-based test model, with no real intelligence. It's refused in production.
 - **Model choice:** each AI step picks Claude Opus 5.5 (default), Sonnet 5.5 or Haiku 5.5.
 - **Refusals:** on Opus and Sonnet, a request Claude declines is automatically retried on Anthropic's fallback model.
