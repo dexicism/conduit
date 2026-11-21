@@ -57,7 +57,7 @@ describe("ollama provider", () => {
       jsonSchema: { type: "object" },
     });
     expect(calls[0]!.url).toBe("http://ollama.test:11434/api/chat");
-    expect(calls[0]!.body).toMatchObject({ model: "qwen3:8b", stream: false, options: { num_predict: 500 } });
+    expect(calls[0]!.body).toMatchObject({ model: "qwen3:8b", stream: false, options: { num_predict: 500, num_ctx: 16384 } });
     expect(calls[0]!.body.tools).toEqual([{ type: "function", function: { name: "add", description: "adds", parameters: { type: "object", properties: { a: { type: "number" } } } } }]);
     expect(calls[0]!.body.format).toBeUndefined(); // not combined with tools
     expect(r.stopReason).toBe("tool_use");

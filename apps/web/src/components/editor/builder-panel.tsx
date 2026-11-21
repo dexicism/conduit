@@ -2,7 +2,7 @@
 
 import { ChevronDownIcon, EraserIcon, Loader2Icon, SendHorizontalIcon, SparklesIcon, Undo2Icon, XIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,8 +25,18 @@ const EXAMPLES = [
   "Add an AI agent that answers questions with a calculator tool",
 ];
 
-function summaryText(s: NonNullable<Msg["summary"]>): string {
-  const parts = [s.added.length && `${s.added.length} added`, s.updated.length && `${s.updated.length} changed`, s.deleted.length && `${s.deleted.length} removed`].filter(Boolean);
+/**
+ * What actually changed, from the saved change set rather than the model's own
+ * words (small local models sometimes describe steps they never added).
+ * Step names come from the current workflow; removed or renamed steps fall back to the count.
+ */
+function summaryText(s: NonNullable<Msg["summary"]>, labels: Map<string, string>): string {
+  const named = (ids: string[], verb: string) => {
+    if (!ids.length) return null;
+    const names = ids.map((id) => labels.get(id)).filter((n): n is string => Boolean(n));
+    return names.length === ids.length && ids.length <= 6 ? `${ids.length} ${verb}: ${names.join(", ")}` : `${ids.length} ${verb}`;
+  };
+  const parts = [named(s.added, "added"), named(s.updated, "changed"), s.deleted.length ? `${s.deleted.length} removed` : null].filter(Boolean);
   return parts.length ? parts.join(" · ") : "No changes";
 }
 
@@ -34,6 +44,8 @@ export function BuilderPanel({ flush }: { flush: () => Promise<number | null> })
   const store = useEditorStoreApi();
   const open = useEditor((s) => s.builderOpen);
   const provider = useEditor((s) => s.ai.provider);
+  const nodes = useEditor((s) => s.graph.nodes);
+  const labels = useMemo(() => new Map(nodes.map((n) => [n.id, n.label])), [nodes]);
   const workflowId = useEditor((s) => s.workflowId);
   const [messages, setMessages] = useState<Msg[] | null>(null);
   const [draft, setDraft] = useState("");
@@ -174,7 +186,7 @@ export function BuilderPanel({ flush }: { flush: () => Promise<number | null> })
                     {m.text}
                     {m.summary && (
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span data-testid="builder-summary">{summaryText(m.summary)}</span>
+                        <span data-testid="builder-summary">{summaryText(m.summary, labels)}</span>
                         {undoable === i && (
                           <Button
                             variant="outline"

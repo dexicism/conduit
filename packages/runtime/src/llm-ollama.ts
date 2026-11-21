@@ -37,6 +37,8 @@ export interface OllamaOptions {
   model?: string;
   /** Request timeout. Local models can be slow, so the default is generous. */
   timeoutMs?: number;
+  /** Context window in tokens. Ollama's default (a few thousand) silently cuts off long prompts like the Builder's. */
+  contextTokens?: number;
   fetch?: typeof fetch;
 }
 
@@ -88,6 +90,7 @@ export function createOllamaLlm(opts: OllamaOptions = {}): LlmService {
   const baseUrl = (opts.baseUrl || DEFAULT_OLLAMA_URL).replace(/\/+$/, "");
   const model = opts.model || DEFAULT_OLLAMA_MODEL;
   const timeoutMs = opts.timeoutMs ?? 300_000;
+  const numCtx = opts.contextTokens ?? 16_384;
   const doFetch = opts.fetch ?? fetch;
   let seq = 0;
 
@@ -103,7 +106,7 @@ export function createOllamaLlm(opts: OllamaOptions = {}): LlmService {
           : {}),
         // JSON-schema output only when no tools are offered: some models ignore tools when `format` is set.
         ...(req.jsonSchema && !req.tools?.length ? { format: req.jsonSchema } : {}),
-        options: { num_predict: req.maxTokens },
+        options: { num_predict: req.maxTokens, num_ctx: numCtx },
       };
       let res: Response;
       try {

@@ -43,6 +43,9 @@ On first run, create `apps/web/.env.local` from [apps/web/.env.example](apps/web
   - It needs about 8 GB of free memory. It's slower than Claude and makes more mistakes building workflows.
   - Test runs of AI steps don't use credits, since a local model costs nothing to run. Live runs use credits as usual.
   - Other models that handle tools: `llama3.1:8b`, `qwen3:14b` (better, needs about 16 GB).
+  - **Speed and quality (measured on an RTX 3050 laptop GPU with 4 GB, `qwen3:8b`):** a simple answer or tool call takes 4–8 s after the model loads (about 25 s the first time). Building a 3-step workflow with the AI Builder worked. A 4-step request took about 3.5 minutes and added only the first step, though the model's reply claimed all four. The Builder panel's change label lists the steps that were really added, so check it.
+  - **Ollama crashes with a "CUDA error" on some NVIDIA laptop GPUs:** run `setx OLLAMA_LLM_LIBRARY cuda_v12`, quit Ollama from the system tray, and open it again from the Start menu.
+  - **Check it yourself:** `npx tsx scripts/try-ollama.mts` (answers, tools, JSON output) and `npx tsx scripts/try-builder.mts "your request"` (the Builder).
 - **Claude (paid per use):** set `ANTHROPIC_API_KEY`.
 - **Without either:** AI steps and the Builder are hidden.
 - **Local trial without a key:** `AI_PROVIDER=fake` turns on a rule-based test model, with no real intelligence. It's refused in production.

@@ -15,7 +15,7 @@ mkdirSync(dbPath, { recursive: true });
 
 const replSet = await MongoMemoryReplSet.create({
   replSet: { count: 1, name: "rs0", storageEngine: "wiredTiger" },
-  instanceOpts: [{ port, dbPath }],
+  instanceOpts: [{ port, dbPath, launchTimeout: 60_000 }],
 });
 
 const uri = `mongodb://127.0.0.1:${port}/?replicaSet=rs0`;

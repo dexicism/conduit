@@ -121,7 +121,7 @@ test.describe("AI builder", () => {
 
     await panel.getByLabel("Message to the builder").fill("When a webhook arrives, check the sentiment and respond");
     await panel.getByRole("button", { name: "Send" }).click();
-    await expect(panel.getByTestId("builder-summary")).toHaveText("3 added", { timeout: 20_000 });
+    await expect(panel.getByTestId("builder-summary")).toHaveText(/^3 added/, { timeout: 20_000 });
     await expect(panel.getByTestId("builder-reply").last()).toContainText("Built the workflow");
 
     const nodes = page.locator('[data-testid^="node-node-"]');

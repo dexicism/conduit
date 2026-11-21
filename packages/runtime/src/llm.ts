@@ -24,9 +24,10 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): { provider: Ll
   if (choice === "none") return { provider: "none" };
   if (choice === "ollama") {
     const timeout = Number(env.OLLAMA_TIMEOUT_MS);
+    const ctx = Number(env.OLLAMA_CONTEXT_TOKENS);
     return {
       provider: "ollama",
-      llm: createOllamaLlm({ baseUrl: env.OLLAMA_URL, model: env.OLLAMA_MODEL, ...(timeout > 0 ? { timeoutMs: timeout } : {}) }),
+      llm: createOllamaLlm({ baseUrl: env.OLLAMA_URL, model: env.OLLAMA_MODEL, ...(timeout > 0 ? { timeoutMs: timeout } : {}), ...(ctx > 0 ? { contextTokens: ctx } : {}) }),
     };
   }
   if (choice === "anthropic" || env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN) {
