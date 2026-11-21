@@ -26,7 +26,7 @@ export function rt() {
       runtime: createRuntime(db, options, { llm: ai.llm, billable: ai.provider === "anthropic" }, { integrations }),
       triggers: createTriggerService(db, mongoClient, {
         telegram: {
-          urlFor: (path) => `${env.APP_URL}/hook/telegram/${path}`,
+          urlFor: (path) => `${env.PUBLIC_URL}/hook/telegram/${path}`,
           register: (ws, cred, url, secret) => integrations.telegram.setWebhook(ws, cred, url, secret),
           unregister: (ws, cred) => integrations.telegram.deleteWebhook(ws, cred),
         },

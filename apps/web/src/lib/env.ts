@@ -19,6 +19,11 @@ function required(name: string, devFallback: string): string {
 export const env = {
   isProd,
   APP_URL: required("BETTER_AUTH_URL", "http://localhost:3000"),
+  /**
+   * Address outside services use to reach incoming hooks (Telegram, webhooks, forms).
+   * Defaults to APP_URL; set it to a tunnel (e.g. Cloudflare) when running on your own PC.
+   */
+  PUBLIC_URL: (optional("PUBLIC_URL") ?? optional("BETTER_AUTH_URL") ?? "http://localhost:3000").replace(/\/+$/, ""),
   AUTH_SECRET: required("BETTER_AUTH_SECRET", "dev-only-secret-change-me-dev-only-secret-change-me"),
   MONGODB_URI: required("MONGODB_URI", "mongodb://127.0.0.1:27018/?replicaSet=rs0"),
   MONGODB_DB: optional("MONGODB_DB") ?? "conduit",

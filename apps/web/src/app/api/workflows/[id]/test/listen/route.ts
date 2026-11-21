@@ -29,7 +29,7 @@ export const POST = route<Ctx>(async (req, ctx) => {
     String(node.parameters.method ?? "POST"),
     user.id,
   );
-  return json({ testUrl: `${env.APP_URL}/hook-test/${path}`, method: node.parameters.method ?? "POST", expiresAt: expiresAt.toISOString() });
+  return json({ testUrl: `${env.PUBLIC_URL}/hook-test/${path}`, method: node.parameters.method ?? "POST", expiresAt: expiresAt.toISOString() });
 });
 
 /** Polled by the editor: tells it which execution the test request started. */

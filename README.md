@@ -52,6 +52,10 @@ On first run, create `apps/web/.env.local` from [apps/web/.env.example](apps/web
 - **Model choice:** each AI step picks Claude Opus 5.5 (default), Sonnet 5.5 or Haiku 5.5.
 - **Refusals:** on Opus and Sonnet, a request Claude declines is automatically retried on Anthropic's fallback model.
 
+**Incoming hooks on your own PC (free).** Telegram, webhook and form triggers need an address the internet can reach. Install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared`) and run `cloudflared tunnel --url http://localhost:3000`. It prints an `https://….trycloudflare.com` address. Put it in `apps/web/.env.local` as `PUBLIC_URL=…` and restart the app.
+- The address changes every time the tunnel restarts. After a change, publish your Telegram workflows again so Telegram learns the new address.
+- While the tunnel runs, anyone with the address can reach your app's pages, and the sign-in page still protects your account. Close the tunnel when you're not using it.
+
 **Connected apps.** Saved accounts are encrypted with `CONDUIT_ENCRYPTION_KEY`. It's required in production and must be the same on the web app and every worker. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Development creates one in `.data/encryption.key`.
 
 - **Google (Gmail, Sheets):** set `CONNECT_GOOGLE_CLIENT_ID` and `CONNECT_GOOGLE_CLIENT_SECRET`, and add `{BETTER_AUTH_URL}/api/credentials/oauth/callback` as a redirect URI. Enable the Gmail and Sheets APIs in the Google Cloud project. Without these, Google steps are hidden.
