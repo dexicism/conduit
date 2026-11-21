@@ -18,7 +18,7 @@ let server: Server;
 let base: string;
 
 beforeAll(async () => {
-  rs = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: "wiredTiger" } });
+  rs = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: "wiredTiger" }, instanceOpts: [{ launchTimeout: 60_000 }] });
   client = new MongoClient(rs.getUri());
   await client.connect();
   db = client.db("runtime_test");
