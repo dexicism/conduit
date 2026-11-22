@@ -2,6 +2,7 @@ import "server-only";
 import { ObjectId, type Filter, type WithId, type Document, MongoServerError } from "mongodb";
 import {
   emptyGraph,
+  WORKFLOW_DESCRIPTION_MAX,
   workflowGraphSchema,
   type CreateWorkflowInput,
   type ListWorkflowsQuery,
@@ -12,6 +13,7 @@ import {
   type WorkflowStatus,
   type WorkflowSummary,
 } from "@conduit/core";
+import { getDefinition } from "@conduit/nodes";
 import { collections, db, ensureIndexes } from "./db";
 import { ApiError } from "./api";
 
@@ -244,3 +246,129 @@ export async function deleteWorkflow(workspaceId: ObjectId, id: string): Promise
 }
 
 export type { WithId };
+
+// ---------------------------------------------------------------------------
+// Version history
+// ---------------------------------------------------------------------------
+
+export interface VersionSummary {
+  id: string;
+  revision: number;
+  publishedAt: string;
+  publishedBy: string | null;
+  stepCount: number;
+  live: boolean;
+}
+
+/** Every publish of a workflow, newest first. */
+export async function listVersions(workspaceId: ObjectId, id: string, limit = 50): Promise<VersionSummary[]> {
+  const wf = await getWorkflow(workspaceId, id);
+  const _id = oid(id);
+  const docs = await db
+    .collection("workflow_versions")
+    .find({ workflowId: _id, workspaceId }, { projection: { revision: 1, publishedAt: 1, publishedBy: 1, "graph.nodes.id": 1 } })
+    .sort({ publishedAt: -1 })
+    .limit(limit)
+    .toArray();
+  const userIds = [...new Set(docs.map((d) => String(d.publishedBy ?? "")).filter((u) => ObjectId.isValid(u)))];
+  const users = userIds.length
+    ? await db
+        .collection("user")
+        .find({ _id: { $in: userIds.map((u) => new ObjectId(u)) } }, { projection: { name: 1, email: 1 } })
+        .toArray()
+    : [];
+  const names = new Map(users.map((u) => [u._id.toHexString(), String(u.name || u.email || "")]));
+  const liveId = wf.status === "published" ? await coll().findOne({ _id }, { projection: { publishedVersionId: 1 } }) : null;
+  return docs.map((d) => ({
+    id: d._id.toHexString(),
+    revision: Number(d.revision ?? 0),
+    publishedAt: (d.publishedAt as Date).toISOString(),
+    publishedBy: names.get(String(d.publishedBy)) ?? null,
+    stepCount: Array.isArray(d.graph?.nodes) ? d.graph.nodes.length : 0,
+    live: Boolean(liveId?.publishedVersionId && String(liveId.publishedVersionId) === d._id.toHexString()),
+  }));
+}
+
+/**
+ * Puts an old published version back into the editor. The live version doesn't
+ * change until you publish again, so a restore can't break anything that's running.
+ */
+export async function restoreVersion(workspaceId: ObjectId, userId: string, id: string, versionId: string): Promise<WorkflowDetail> {
+  const _id = oid(id);
+  if (!ObjectId.isValid(versionId)) throw new ApiError(404, "not_found", "Version not found");
+  const version = await db.collection("workflow_versions").findOne({ _id: new ObjectId(versionId), workflowId: _id, workspaceId });
+  if (!version) throw new ApiError(404, "not_found", "Version not found");
+  const graph = workflowGraphSchema.parse(version.graph);
+  const doc = (await coll().findOneAndUpdate(
+    { _id, workspaceId },
+    { $set: { draft: graph, updatedAt: new Date(), updatedBy: userId }, $inc: { revision: 1 } },
+    { returnDocument: "after" },
+  )) as WorkflowDoc | null;
+  if (!doc) throw new ApiError(404, "not_found", "Workflow not found");
+  return toDetail(doc);
+}
+
+// ---------------------------------------------------------------------------
+// Export and import
+// ---------------------------------------------------------------------------
+
+export const EXPORT_FORMAT = "conduit-workflow";
+
+/** Clears every account picked in the graph, so a shared file never points at your connections. */
+export function stripCredentials(graph: WorkflowGraph): WorkflowGraph {
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n) => {
+      const fields = getDefinition(n.type)?.fields ?? [];
+      const parameters = { ...n.parameters };
+      for (const f of fields) if (f.kind === "credential" && f.name in parameters) parameters[f.name] = "";
+      return { ...n, parameters };
+    }),
+  };
+}
+
+export async function exportWorkflow(workspaceId: ObjectId, id: string) {
+  const wf = await getWorkflow(workspaceId, id);
+  return {
+    format: EXPORT_FORMAT,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    name: wf.name,
+    description: wf.description,
+    graph: stripCredentials(wf.draft),
+  };
+}
+
+/**
+ * Creates a workflow from an exported file. Steps whose app has exactly one
+ * connected account in this workspace get that account; the rest are left for you to pick.
+ */
+export async function importWorkflow(workspaceId: ObjectId, userId: string, file: unknown): Promise<{ workflow: WorkflowDetail; needsAccounts: number }> {
+  const f = file as { format?: unknown; name?: unknown; description?: unknown; graph?: unknown } | null;
+  if (!f || typeof f !== "object" || f.format !== EXPORT_FORMAT) {
+    throw new ApiError(400, "validation_failed", "That isn't a Conduit workflow file");
+  }
+  const parsed = workflowGraphSchema.safeParse(f.graph);
+  if (!parsed.success) throw new ApiError(400, "validation_failed", "The workflow in this file is damaged or from a newer version");
+  const unknown = [...new Set(parsed.data.nodes.filter((n) => !getDefinition(n.type)).map((n) => n.type))];
+  if (unknown.length) throw new ApiError(400, "validation_failed", `This file uses steps this version doesn't have: ${unknown.slice(0, 5).join(", ")}`);
+
+  const graph = stripCredentials(parsed.data);
+  const creds = await db.collection("credentials").find({ workspaceId }, { projection: { app: 1 } }).toArray();
+  const byApp = new Map<string, string[]>();
+  for (const c of creds) byApp.set(String(c.app), [...(byApp.get(String(c.app)) ?? []), c._id.toHexString()]);
+  let needsAccounts = 0;
+  for (const n of graph.nodes) {
+    for (const field of getDefinition(n.type)?.fields ?? []) {
+      if (field.kind !== "credential" || !(field.name in n.parameters)) continue;
+      const options = byApp.get(field.app) ?? [];
+      if (options.length === 1) n.parameters[field.name] = options[0];
+      else if (field.required) needsAccounts++;
+    }
+  }
+  const rawName = typeof f.name === "string" && f.name.trim() ? f.name.trim() : "Imported workflow";
+  const name = rawName.slice(0, 150);
+  const description = typeof f.description === "string" ? f.description.slice(0, WORKFLOW_DESCRIPTION_MAX) : null;
+  const { workflow } = await createWorkflow(workspaceId, userId, { name, description }, graph);
+  return { workflow, needsAccounts };
+}

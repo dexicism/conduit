@@ -74,6 +74,13 @@ export const api = {
     request<WorkflowDetail>("/api/workflows", { method: "POST", body: JSON.stringify(input) }),
   updateWorkflow: (id: string, input: UpdateWorkflowInput) =>
     request<WorkflowDetail>(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  listVersions: (id: string) =>
+    request<{ versions: Array<{ id: string; revision: number; publishedAt: string; publishedBy: string | null; stepCount: number; live: boolean }> }>(
+      `/api/workflows/${id}/versions`,
+    ),
+  restoreVersion: (id: string, versionId: string) => request<WorkflowDetail>(`/api/workflows/${id}/versions/${versionId}/restore`, { method: "POST" }),
+  importWorkflow: (file: unknown) =>
+    request<{ workflow: WorkflowDetail; needsAccounts: number }>("/api/workflows/import", { method: "POST", body: JSON.stringify(file) }),
   duplicateWorkflow: (id: string) => request<WorkflowDetail>(`/api/workflows/${id}/duplicate`, { method: "POST" }),
   deleteWorkflow: (id: string) => request<void>(`/api/workflows/${id}`, { method: "DELETE" }),
   listTemplates: () => request<{ templates: TemplateCard[] }>("/api/templates"),

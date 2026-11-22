@@ -19,7 +19,7 @@ export function HomeView() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
-          <p className="mt-1 text-sm text-muted-foreground">How your live workflows did over the last 7 days. Test runs from the editor aren't counted.</p>
+          <p className="mt-1 text-sm text-muted-foreground">How your live workflows did over the last 7 days. Test runs from the editor aren&apos;t counted.</p>
         </div>
         <Link href="/app/workflows?templates=1" className={buttonVariants({ variant: "outline" })}>
           <LayoutTemplateIcon data-icon="inline-start" /> Start from a template

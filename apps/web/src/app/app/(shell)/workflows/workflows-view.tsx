@@ -14,13 +14,14 @@ import {
   RefreshCwIcon,
   SearchIcon,
   Trash2Icon,
+  UploadIcon,
   WorkflowIcon,
   XIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/workflows/status-badge";
 import { TemplatesDialog } from "@/components/workflows/templates-dialog";
@@ -61,6 +62,47 @@ const FILTERS: Array<{ value: ListFilter; label: string }> = [
   { value: "active", label: "Active" },
   { value: "archived", label: "Archived" },
 ];
+
+/** Opens a workflow file someone exported (Download as file in the editor). */
+function ImportButton() {
+  const router = useRouter();
+  const qc = useQueryClient();
+  const input = useRef<HTMLInputElement>(null);
+  const [pending, setPending] = useState(false);
+  async function onFile(file: File | undefined) {
+    if (!file) return;
+    setPending(true);
+    try {
+      if (file.size > 2_000_000) throw new Error("That file is too big for a workflow");
+      let data: unknown;
+      try {
+        data = JSON.parse(await file.text());
+      } catch {
+        throw new Error("That file isn't a workflow file");
+      }
+      const { workflow, needsAccounts } = await api.importWorkflow(data);
+      void qc.invalidateQueries({ queryKey: ["workflows"] });
+      toast.success(`Imported "${workflow.name}"`, {
+        description: needsAccounts ? `Pick an account in ${needsAccounts} ${needsAccounts === 1 ? "step" : "steps"} before publishing.` : undefined,
+      });
+      router.push(`/app/workflows/${workflow.id}`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setPending(false);
+      if (input.current) input.current.value = "";
+    }
+  }
+  return (
+    <>
+      <input ref={input} type="file" accept=".json,application/json" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => void onFile(e.target.files?.[0])} />
+      <Button variant="outline" disabled={pending} onClick={() => input.current?.click()}>
+        {pending ? <Loader2Icon className="animate-spin" /> : <UploadIcon data-icon="inline-start" />}
+        Import
+      </Button>
+    </>
+  );
+}
 
 export function WorkflowsView({ openTemplates = false }: { openTemplates?: boolean }) {
   const router = useRouter();
@@ -150,6 +192,7 @@ export function WorkflowsView({ openTemplates = false }: { openTemplates?: boole
           <p className="mt-1 text-sm text-muted-foreground">Automations in this workspace.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <ImportButton />
           <Button variant="outline" onClick={() => setTemplatesOpen(true)}>
             <LayoutTemplateIcon data-icon="inline-start" />
             Templates

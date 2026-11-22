@@ -285,18 +285,18 @@ function WhatsappSetupDialog({ cred, publicUrl, onClose }: { cred: CredentialVie
         </DialogHeader>
         {local && (
           <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-            This server's address is {publicUrl}, which Meta can't reach. Run <code>cloudflared tunnel --url http://localhost:3000</code>, put the
+            This server&apos;s address is {publicUrl}, which Meta can&apos;t reach. Run <code>cloudflared tunnel --url http://localhost:3000</code>, put the
             address it prints in <code>PUBLIC_URL</code>, restart Conduit and open this again.
           </p>
         )}
         <CopyRow label="Callback URL" value={url} />
         <ol className="grid list-decimal gap-1.5 pl-5 text-sm text-muted-foreground">
-          <li>Update this connection's keys with your App secret (Meta app: App settings, Basic) and a verify token you make up.</li>
+          <li>Update this connection&apos;s keys with your App secret (Meta app: App settings, Basic) and a verify token you make up.</li>
           <li>In Meta for Developers, open WhatsApp, Configuration. Paste the callback URL and the same verify token, then Verify and save.</li>
           <li>Under Webhook fields, subscribe to <strong>messages</strong>.</li>
-          <li>Publish a workflow that starts with "WhatsApp message", or use the "AI WhatsApp assistant" template.</li>
+          <li>Publish a workflow that starts with &ldquo;WhatsApp message&rdquo;, or use the &ldquo;AI WhatsApp assistant&rdquo; template.</li>
         </ol>
-        <p className="text-xs text-muted-foreground">Meta's free test number can message up to 5 numbers you verify. Replies within 24 hours of a customer's message need no template.</p>
+        <p className="text-xs text-muted-foreground">Meta&apos;s free test number can message up to 5 numbers you verify. Replies within 24 hours of a customer&apos;s message need no template.</p>
         <DialogFooter>
           <Button onClick={onClose}>Done</Button>
         </DialogFooter>

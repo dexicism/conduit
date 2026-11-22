@@ -8,6 +8,8 @@ import {
   ArrowLeftIcon,
   CheckIcon,
   CloudOffIcon,
+  DownloadIcon,
+  GitCommitVerticalIcon,
   HistoryIcon,
   Loader2Icon,
   MoreHorizontalIcon,
@@ -20,6 +22,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { LiveTriggersDialog, PublishButton, TestButton, WorkflowSettingsDialog, type LiveTrigger } from "./run-controls";
+import { VersionsDialog } from "./versions-dialog";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -90,6 +93,7 @@ export function EditorTopBar({
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const [live, setLive] = useState<LiveTrigger[] | null>(null);
   const [publishing, setPublishing] = useState(false);
 
@@ -240,6 +244,21 @@ export function EditorTopBar({
             <DropdownMenuItem render={<Link href={`/app/executions?workflowId=${meta.id}`} />}>
               <HistoryIcon /> Run history
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setVersionsOpen(true)}>
+              <GitCommitVerticalIcon /> Version history
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                void flush().then(() => {
+                  const a = document.createElement("a");
+                  a.href = `/api/workflows/${meta.id}/export`;
+                  a.download = "";
+                  a.click();
+                });
+              }}
+            >
+              <DownloadIcon /> Download as file
+            </DropdownMenuItem>
             {publishedRevision !== null && (
               <>
                 <DropdownMenuItem onClick={() => void showLive()}>
@@ -262,6 +281,7 @@ export function EditorTopBar({
         </DropdownMenu>
       </div>
 
+      <VersionsDialog workflowId={meta.id} open={versionsOpen} onOpenChange={setVersionsOpen} flush={flush} />
       <LiveTriggersDialog open={live !== null} onOpenChange={(o) => !o && setLive(null)} triggers={live ?? []} />
       <WorkflowSettingsDialog
         open={settingsOpen}
