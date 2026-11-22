@@ -1,6 +1,4 @@
-import { workflowGraphSchema } from "@conduit/core";
-import { telegramUpdateToItem } from "@conduit/runtime";
-import { ObjectId } from "mongodb";
+import { telegramRunInput } from "@conduit/runtime";
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -37,29 +35,10 @@ export async function POST(req: Request, ctx: RouteContext<"/hook/telegram/[path
   } catch {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
-  // Only messages start runs; acknowledge anything else so Telegram doesn't retry it.
-  if (!update.message && !update.edited_message) return NextResponse.json({ ok: true });
-
   try {
-    const [wf, version] = await Promise.all([
-      db.collection("workflows").findOne({ _id: t.workflowId }, { projection: { name: 1 } }),
-      db.collection("workflow_versions").findOne({ _id: t.versionId! }),
-    ]);
-    if (!wf || !version) return NextResponse.json({ ok: true });
-    const graph = workflowGraphSchema.parse(version.graph);
-    await runtime.createExecution(
-      {
-        workspaceId: t.workspaceId,
-        workflowId: t.workflowId,
-        workflowName: String(wf.name),
-        versionId: version._id as ObjectId,
-        mode: "production",
-        graph,
-        triggerNodeId: t.nodeId,
-        triggerItems: [{ json: telegramUpdateToItem(update) }],
-      },
-      true,
-    );
+    // Only messages start runs; acknowledge anything else so Telegram doesn't retry it.
+    const input = await telegramRunInput(db, t, update);
+    if (input) await runtime.createExecution(input, true);
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[telegram] failed to start run", err);

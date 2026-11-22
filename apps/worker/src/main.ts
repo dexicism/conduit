@@ -5,7 +5,7 @@
  *
  *   MONGODB_URI=... MONGODB_DB=conduit npm start -w worker
  */
-import { createRuntime, integrationsFromEnv, llmFromEnv } from "@conduit/runtime";
+import { createRuntime, integrationsFromEnv, llmFromEnv, startTelegramPoller, telegramModeFromEnv } from "@conduit/runtime";
 import { MongoClient } from "mongodb";
 
 const uri = process.env.MONGODB_URI;
@@ -32,11 +32,15 @@ const runtime = createRuntime(db, {
 }, { llm: ai.llm, billable: ai.provider === "anthropic" }, { integrations });
 console.info(`[worker] connected apps key: ${keySource}`);
 const worker = runtime.startWorker();
+// Polling mode: Telegram rejects overlapping polls, so with several workers set TELEGRAM_POLL=0 on all but one.
+const poller = telegramModeFromEnv() === "polling" && process.env.TELEGRAM_POLL !== "0" ? startTelegramPoller(db, integrations, runtime) : null;
+if (poller) console.info("[worker] Telegram: polling for messages");
 console.info(`[worker] AI provider: ${ai.provider}`);
 console.info("[worker] running");
 
 const shutdown = async () => {
   console.info("[worker] draining…");
+  await poller?.stop();
   await worker.stop();
   await client.close();
   process.exit(0);

@@ -1,5 +1,5 @@
 import "server-only";
-import { createExecutionQueries, createRuntime, createTriggerService, integrationsFromEnv, llmFromEnv, type Integrations, type LlmProviderName } from "@conduit/runtime";
+import { createExecutionQueries, createRuntime, createTriggerService, integrationsFromEnv, llmFromEnv, telegramModeFromEnv, type Integrations, type LlmProviderName } from "@conduit/runtime";
 import type { LlmService } from "@conduit/engine";
 import { db, mongoClient } from "./db";
 import { env } from "./env";
@@ -25,11 +25,19 @@ export function rt() {
       // Test runs of AI steps cost credits only on a real (paid) model.
       runtime: createRuntime(db, options, { llm: ai.llm, billable: ai.provider === "anthropic" }, { integrations }),
       triggers: createTriggerService(db, mongoClient, {
-        telegram: {
-          urlFor: (path) => `${env.PUBLIC_URL}/hook/telegram/${path}`,
-          register: (ws, cred, url, secret) => integrations.telegram.setWebhook(ws, cred, url, secret),
-          unregister: (ws, cred) => integrations.telegram.deleteWebhook(ws, cred),
-        },
+        telegram:
+          telegramModeFromEnv() === "polling"
+            ? {
+                // The worker polls for messages; a leftover webhook would block that, and old messages are skipped.
+                urlFor: (path) => `${env.PUBLIC_URL}/hook/telegram/${path}`,
+                register: (ws, cred) => integrations.telegram.deleteWebhook(ws, cred, true),
+                unregister: async () => {},
+              }
+            : {
+                urlFor: (path) => `${env.PUBLIC_URL}/hook/telegram/${path}`,
+                register: (ws, cred, url, secret) => integrations.telegram.setWebhook(ws, cred, url, secret),
+                unregister: (ws, cred) => integrations.telegram.deleteWebhook(ws, cred),
+              },
       }),
       executions: createExecutionQueries(db),
       ai,

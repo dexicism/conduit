@@ -516,9 +516,27 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
       const b = res.body as { ok?: boolean; description?: string };
       if (!b?.ok) throw new StepError(`Telegram: ${b?.description ?? `status ${res.status}`}`);
     },
-    async deleteWebhook(workspaceId: ObjectId, credentialId: string) {
+    async deleteWebhook(workspaceId: ObjectId, credentialId: string, dropPendingUpdates = false) {
       const { botToken } = (await resolve(workspaceId, credentialId, "telegram")).values;
-      await callApi({ method: "POST", url: `https://api.telegram.org/bot${botToken}/deleteWebhook`, body: {} });
+      const res = await callApi({
+        method: "POST",
+        url: `https://api.telegram.org/bot${botToken}/deleteWebhook`,
+        body: dropPendingUpdates ? { drop_pending_updates: true } : {},
+      });
+      const b = res.body as { ok?: boolean; description?: string };
+      if (!b?.ok) throw new StepError(`Telegram: ${b?.description ?? `status ${res.status}`}`);
+    },
+    /** Polling mode: new updates since `offset`, waiting up to `timeoutSec` for one to arrive. */
+    async getUpdates(workspaceId: ObjectId, credentialId: string, offset: number | undefined, timeoutSec: number) {
+      const { botToken } = (await resolve(workspaceId, credentialId, "telegram")).values;
+      const res = await callApi({
+        method: "POST",
+        url: `https://api.telegram.org/bot${botToken}/getUpdates`,
+        body: { ...(offset !== undefined ? { offset } : {}), timeout: timeoutSec, allowed_updates: ["message"] },
+      });
+      const b = res.body as { ok?: boolean; description?: string; result?: Array<Record<string, unknown>> };
+      if (!b?.ok) throw new StepError(`Telegram: ${b?.description ?? `status ${res.status}`}`);
+      return b.result ?? [];
     },
   };
 

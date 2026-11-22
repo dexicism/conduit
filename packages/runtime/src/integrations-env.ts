@@ -71,3 +71,23 @@ export function integrationsFromEnv(db: Db, opts: { allowPrivateNetwork: boolean
     }),
   };
 }
+
+export type TelegramMode = "webhook" | "polling";
+
+/**
+ * How Telegram bots deliver messages:
+ * - "webhook": Telegram calls PUBLIC_URL/hook/telegram/... (needs a public address).
+ * - "polling": the worker asks Telegram for new messages (works on a PC with no public address).
+ * TELEGRAM_MODE picks one; by default it's polling when the public URL is localhost.
+ */
+export function telegramModeFromEnv(e: NodeJS.ProcessEnv = process.env): TelegramMode {
+  const m = e.TELEGRAM_MODE?.trim().toLowerCase();
+  if (m === "webhook" || m === "polling") return m;
+  const url = e.PUBLIC_URL?.trim() || e.BETTER_AUTH_URL?.trim() || "http://localhost:3000";
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost") ? "polling" : "webhook";
+  } catch {
+    return "polling";
+  }
+}

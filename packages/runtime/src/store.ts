@@ -80,6 +80,8 @@ export interface TriggerDoc {
   /** Telegram: the bot's account and the secret Telegram sends back on every update. */
   credentialId?: string;
   secretToken?: string;
+  /** Telegram polling mode: the next update id to ask for. */
+  pollOffset?: number;
   createdAt: Date;
 }
 

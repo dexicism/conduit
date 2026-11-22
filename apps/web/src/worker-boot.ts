@@ -1,4 +1,4 @@
-import { createRuntime, integrationsFromEnv, llmFromEnv } from "@conduit/runtime";
+import { createRuntime, integrationsFromEnv, llmFromEnv, startTelegramPoller, telegramModeFromEnv } from "@conduit/runtime";
 import { MongoClient } from "mongodb";
 import { runtimeOptionsFromEnv } from "./lib/runtime-options";
 
@@ -17,6 +17,10 @@ export function bootWorker(): Promise<void> {
     const runtime = createRuntime(db, options, { llm: ai.llm, billable: ai.provider === "anthropic" }, { integrations });
     console.info(`[worker] AI provider: ${ai.provider}`);
     runtime.startWorker();
+    if (telegramModeFromEnv() === "polling") {
+      startTelegramPoller(db, integrations, runtime);
+      console.info("[worker] Telegram: polling for messages (no public address needed)");
+    }
     console.info("[worker] started in-process");
   })().catch((err) => {
     g.__conduitWorker = undefined;

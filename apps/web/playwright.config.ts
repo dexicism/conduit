@@ -39,6 +39,8 @@ export default defineConfig({
     timeout: 180_000,
     env: {
       BETTER_AUTH_URL: baseURL,
+      // The e2e suite covers webhook delivery; polling is covered by the runtime tests.
+      TELEGRAM_MODE: "webhook",
       MONGODB_DB: "conduit_e2e",
       OUTBOX_PATH: ".data/outbox-e2e.jsonl",
       // HTTP steps in tests call this app on localhost.

@@ -31,6 +31,8 @@ export interface FakeState {
   sheets: Record<string, Record<string, string[][]>>;
   sentMail: string[];
   telegramWebhooks: Record<string, { url: string; secretToken?: string }>;
+  /** Updates waiting for getUpdates (polling mode). Push to simulate someone messaging the bot. */
+  telegramUpdates: Array<Record<string, unknown>>;
 }
 
 export const FAKE = {
@@ -60,6 +62,7 @@ function freshState(): FakeState {
     },
     sentMail: [],
     telegramWebhooks: {},
+    telegramUpdates: [],
   };
 }
 
@@ -177,7 +180,17 @@ export function startFakeApis(port = 0): Promise<FakeApis> {
             return send(res, 200, { ok: true, result: true, description: "Webhook was set" });
           case "deleteWebhook":
             delete state.telegramWebhooks[m[1]!];
+            if (b.drop_pending_updates) state.telegramUpdates = [];
             return send(res, 200, { ok: true, result: true });
+          case "getUpdates": {
+            if (state.telegramWebhooks[m[1]!]) {
+              return send(res, 409, { ok: false, error_code: 409, description: "Conflict: can't use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first" });
+            }
+            // Like Telegram: asking for a later offset confirms (forgets) earlier updates.
+            const offset = Number(b.offset ?? 0);
+            if (offset) state.telegramUpdates = state.telegramUpdates.filter((u) => Number(u.update_id) >= offset);
+            return send(res, 200, { ok: true, result: state.telegramUpdates });
+          }
         }
         return send(res, 404, { ok: false, description: "Not Found" });
       }

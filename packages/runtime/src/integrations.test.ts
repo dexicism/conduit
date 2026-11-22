@@ -14,6 +14,8 @@ import { createIntegrations, redactValue, resolveSafeHost, runPostgres, sendSmtp
 import { createHttpClient } from "./net";
 import { createRuntime, type Runtime } from "./runtime";
 import { FAKE, startFakeApis, type FakeApis } from "./testing/fake-apis";
+import { telegramModeFromEnv } from "./integrations-env";
+import { startTelegramPoller } from "./telegram-poll";
 import { createTriggerService } from "./triggers";
 import { createVault, parseMasterKeys, VaultError } from "./vault";
 
@@ -530,4 +532,62 @@ describe("HTTP redirects", () => {
     await http({ method: "GET", url: `http://127.0.0.1:${aPort}/`, headers: { authorization: "Bearer x", "x-api-key": "k" }, sensitiveHeaders: ["x-api-key"], timeoutMs: 3000 });
     expect(seen).toEqual([undefined]);
   });
+});
+
+describe("Telegram polling mode", () => {
+  it("defaults to polling on localhost and webhooks on a public address", () => {
+    expect(telegramModeFromEnv({} as NodeJS.ProcessEnv)).toBe("polling");
+    expect(telegramModeFromEnv({ PUBLIC_URL: "http://127.0.0.1:3000" } as NodeJS.ProcessEnv)).toBe("polling");
+    expect(telegramModeFromEnv({ PUBLIC_URL: "https://abc.trycloudflare.com" } as NodeJS.ProcessEnv)).toBe("webhook");
+    expect(telegramModeFromEnv({ PUBLIC_URL: "https://abc.trycloudflare.com", TELEGRAM_MODE: "polling" } as NodeJS.ProcessEnv)).toBe("polling");
+  });
+
+  it("picks up a message without a webhook, runs the workflow once, and replies", async () => {
+    const ws = new ObjectId();
+    const id = await cred(ws, "telegram", { botToken: FAKE.telegramToken });
+    // A webhook left over from webhook mode blocks polling; publishing removes it.
+    fake.state.telegramWebhooks[FAKE.telegramToken] = { url: "https://old.example.com/hook" };
+    fake.state.telegramUpdates.push({ update_id: 1, message: { message_id: 1, text: "old message", chat: { id: 9 } } });
+    const triggers = createTriggerService(db, client, {
+      telegram: { urlFor: (p) => p, register: (w, c) => integ.telegram.deleteWebhook(w, c, true), unregister: async () => {} },
+    });
+    const g = graph([
+      { id: "tg", type: "trigger.telegram", parameters: { credential: id }, to: { main: ["reply"] } },
+      { id: "reply", type: "app.telegram.send", parameters: { credential: id, chatId: "${['$input']['message']['chat']['id']}", text: "You said: ${['$input']['message']['text']}" } },
+    ]);
+    const wf = new ObjectId();
+    await db.collection("workflows").insertOne({ _id: wf, workspaceId: ws, name: "echo bot", revision: 1, draft: g, publishedVersionId: null, archivedAt: null });
+    await triggers.publish(ws, wf, userId);
+    expect(fake.state.telegramWebhooks[FAKE.telegramToken]).toBeUndefined();
+    expect(fake.state.telegramUpdates).toEqual([]); // the old message was skipped
+
+    const poller = startTelegramPoller(db, integ, rt, { timeoutSec: 0, idleMs: 50, errorBackoffMs: 50 });
+    const worker = rt.startWorker({ pollMs: 50 });
+    try {
+      fake.state.telegramUpdates.push({
+        update_id: 501,
+        message: { message_id: 7, date: 1767258000, text: "hello bot", chat: { id: 4242, type: "private" }, from: { id: 4242, first_name: "Ana" } },
+      });
+      const deadline = Date.now() + 15_000;
+      let done: { status: string; mode: string } | null = null;
+      while (Date.now() < deadline) {
+        done = await rt.collections.executions.findOne({ workflowId: wf, status: { $in: ["success", "failed"] } });
+        if (done) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(done?.status).toBe("success");
+      expect(done?.mode).toBe("production");
+      const sent = fake.calls.filter((c) => c.path.endsWith("/sendMessage"));
+      expect(sent.map((c) => c.body)).toEqual([{ chat_id: "4242", text: "You said: hello bot" }]);
+      // A few more polls: the same message must not start a second run.
+      await new Promise((r) => setTimeout(r, 1500));
+      expect(await rt.collections.executions.countDocuments({ workflowId: wf })).toBe(1);
+      expect((await triggers.activeTriggers(wf))[0]?.pollOffset).toBe(502);
+      const polls = fake.calls.filter((c) => c.path.endsWith("/getUpdates"));
+      expect(polls.at(-1)?.body).toMatchObject({ offset: 502 });
+    } finally {
+      await poller.stop();
+      await worker.stop();
+    }
+  }, 30_000);
 });
