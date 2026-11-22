@@ -33,6 +33,7 @@ export interface FakeState {
   telegramWebhooks: Record<string, { url: string; secretToken?: string }>;
   /** Updates waiting for getUpdates (polling mode). Push to simulate someone messaging the bot. */
   telegramUpdates: Array<Record<string, unknown>>;
+  driveFiles: Array<{ id: string; name: string; mimeType: string; content: string; parents?: string[] }>;
 }
 
 export const FAKE = {
@@ -63,6 +64,7 @@ function freshState(): FakeState {
     sentMail: [],
     telegramWebhooks: {},
     telegramUpdates: [],
+    driveFiles: [],
   };
 }
 
@@ -136,6 +138,53 @@ export function startFakeApis(port = 0): Promise<FakeApis> {
           return send(res, 400, { error: { message: "Re-engagement message", code: 131047 } });
         }
         return send(res, 200, { messaging_product: "whatsapp", contacts: [{ input: b.to, wa_id: b.to }], messages: [{ id: `wamid.FAKE${Date.now()}` }] });
+      }
+
+      // --- Google Drive ---------------------------------------------------
+      if (host === "www.googleapis.com" && (path.startsWith("/drive/v3/") || path.startsWith("/upload/drive/v3/"))) {
+        if (!googleAuthed(req)) return send(res, 401, { error: { code: 401, message: "Request had invalid authentication credentials." } });
+        const view = (f: FakeState["driveFiles"][number]) => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          webViewLink: `https://drive.google.com/file/d/${f.id}/view`,
+          size: f.mimeType.startsWith("application/vnd.google-apps") ? undefined : String(Buffer.byteLength(f.content)),
+        });
+        if (req.method === "POST" && path === "/upload/drive/v3/files" && url.searchParams.get("uploadType") === "multipart") {
+          const boundary = /boundary=([^;]+)/.exec(type)?.[1];
+          const parts = boundary ? raw.split(`--${boundary}`).slice(1, -1) : [];
+          if (parts.length !== 2) return send(res, 400, { error: { code: 400, message: "Malformed multipart body" } });
+          const [metaPart, mediaPart] = parts.map((p) => {
+            const i = p.indexOf("\r\n\r\n");
+            return { head: p.slice(0, i), body: p.slice(i + 4).replace(/\r\n$/, "") };
+          });
+          const meta = JSON.parse(metaPart!.body) as { name: string; mimeType?: string; parents?: string[] };
+          const mediaType = /Content-Type: ([^;\r\n]+)/i.exec(mediaPart!.head)?.[1] ?? "application/octet-stream";
+          const f = { id: `drv${randomBytes(8).toString("hex")}`, name: meta.name, mimeType: meta.mimeType ?? mediaType, content: mediaPart!.body, parents: meta.parents };
+          state.driveFiles.push(f);
+          return send(res, 200, view(f));
+        }
+        if (req.method === "GET" && path === "/drive/v3/files") {
+          const q = url.searchParams.get("q") ?? "";
+          const name = /name contains '((?:[^'\\]|\\.)*)'/.exec(q)?.[1]?.replace(/\\(.)/g, "$1");
+          const list = state.driveFiles.filter((f) => !name || f.name.includes(name)).reverse().slice(0, Number(url.searchParams.get("pageSize") ?? 100));
+          return send(res, 200, { files: list.map((f) => ({ ...view(f), modifiedTime: "2026-01-01T09:00:00.000Z" })) });
+        }
+        const m = /^\/drive\/v3\/files\/([^/]+)(\/export)?$/.exec(path);
+        const f = m && state.driveFiles.find((x) => x.id === m[1]);
+        if (!f) return send(res, 404, { error: { code: 404, message: `File not found: ${m?.[1] ?? ""}.` } });
+        const google = f.mimeType.startsWith("application/vnd.google-apps");
+        if (m![2]) {
+          if (!google) return send(res, 403, { error: { code: 403, message: "Export only supports Docs Editors files." } });
+          res.writeHead(200, { "content-type": url.searchParams.get("mimeType") ?? "text/plain" });
+          return res.end(f.content);
+        }
+        if (url.searchParams.get("alt") === "media") {
+          if (google) return send(res, 403, { error: { code: 403, message: "Only files with binary content can be downloaded. Use Export with Docs Editors files." } });
+          res.writeHead(200, { "content-type": f.mimeType });
+          return res.end(f.content);
+        }
+        return send(res, 200, view(f));
       }
 
       // --- Google Calendar ------------------------------------------------

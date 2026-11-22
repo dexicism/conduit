@@ -287,6 +287,84 @@ export const calendarCreate: NodeDefinition = {
   outputSample: { id: "abc123", htmlLink: "https://www.google.com/calendar/event?eid=abc123", status: "confirmed", start: "2026-01-15T10:00:00+07:00" },
 };
 
+// ---------------------------------------------------------------------------
+// Google Drive
+// ---------------------------------------------------------------------------
+
+const DRIVE_NOTE = "Conduit can only see Drive files it created, or that were opened with it.";
+
+export const driveSave: NodeDefinition = {
+  ...action,
+  type: "app.drive.save",
+  name: "Google Drive: save file",
+  description: "Save text, CSV, JSON, Markdown or HTML as a file in Google Drive, or as a Google Doc or Sheet.",
+  icon: "HardDrive",
+  app: "google",
+  keywords: ["google", "drive", "file", "save", "upload", "doc", "csv", "backup", "export"],
+  asTool: { name: "save_drive_file", description: "Save text as a file in Google Drive." },
+  fields: [
+    credential("google"),
+    { kind: "string", name: "fileName", label: "File name", required: true, placeholder: "report.csv" },
+    { kind: "string", name: "content", label: "Content", required: true, multiline: true },
+    {
+      kind: "select",
+      name: "fileType",
+      label: "Content type",
+      default: "text",
+      options: [
+        { value: "text", label: "Plain text" },
+        { value: "csv", label: "CSV" },
+        { value: "json", label: "JSON" },
+        { value: "markdown", label: "Markdown" },
+        { value: "html", label: "HTML" },
+      ],
+    },
+    {
+      kind: "select",
+      name: "convert",
+      label: "Save as",
+      default: "none",
+      options: [
+        { value: "none", label: "A file of that type" },
+        { value: "doc", label: "A Google Doc (from text, Markdown or HTML)" },
+        { value: "sheet", label: "A Google Sheet (from CSV)" },
+      ],
+    },
+    { kind: "string", name: "folder", label: "Folder", placeholder: "Folder link or ID (optional)", description: "Leave empty for My Drive." },
+  ],
+  outputSample: { id: "1AbCdEfGhIjKlMnOp", name: "report.csv", mimeType: "text/csv", link: "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOp/view" },
+};
+
+export const driveFind: NodeDefinition = {
+  ...action,
+  type: "app.drive.find",
+  name: "Google Drive: find files",
+  description: `List Drive files, newest first, one item per file. ${DRIVE_NOTE}`,
+  icon: "HardDrive",
+  app: "google",
+  keywords: ["google", "drive", "file", "search", "list", "find"],
+  asTool: { name: "find_drive_files", description: "Find files in Google Drive by name." },
+  fields: [
+    credential("google"),
+    { kind: "string", name: "nameContains", label: "Name contains", placeholder: "report (optional)" },
+    { kind: "number", name: "limit", label: "Max files", default: 20, min: 1, max: 100 },
+  ],
+  outputSample: { id: "1AbCdEfGhIjKlMnOp", name: "report.csv", mimeType: "text/csv", link: "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOp/view", modifiedTime: "2026-01-01T09:00:00.000Z", size: 120 },
+};
+
+export const driveRead: NodeDefinition = {
+  ...action,
+  type: "app.drive.read",
+  name: "Google Drive: read file",
+  description: `Read a text file, Google Doc (as text) or Google Sheet (as CSV). ${DRIVE_NOTE}`,
+  icon: "HardDrive",
+  app: "google",
+  keywords: ["google", "drive", "file", "read", "download", "doc", "content"],
+  asTool: { name: "read_drive_file", description: "Read the text of a Google Drive file." },
+  fields: [credential("google"), { kind: "string", name: "file", label: "File", required: true, placeholder: "File link or ID" }],
+  outputSample: { id: "1AbCdEfGhIjKlMnOp", name: "notes.txt", mimeType: "text/plain", content: "Hello" },
+};
+
 export const APP_ACTION_DEFINITIONS: readonly NodeDefinition[] = [
   telegramSend,
   slackSend,
@@ -295,6 +373,9 @@ export const APP_ACTION_DEFINITIONS: readonly NodeDefinition[] = [
   gmailSend,
   sheetsAppend,
   sheetsRead,
+  driveSave,
+  driveFind,
+  driveRead,
   postgresQuery,
   smtpSend,
 ];

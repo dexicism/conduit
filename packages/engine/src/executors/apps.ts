@@ -327,7 +327,116 @@ const calendarCreate: AppAction = async (p, services) => {
   return { id: b.id, htmlLink: b.htmlLink, status: b.status, start: b.start?.dateTime ?? start };
 };
 
+// ---------------------------------------------------------------------------
+// Google Drive (drive.file scope: only files this app created or was given)
+// ---------------------------------------------------------------------------
+
+const MAX_DRIVE_TEXT = 5_000_000;
+const DRIVE_TYPES: Record<string, string> = {
+  text: "text/plain",
+  csv: "text/csv",
+  json: "application/json",
+  markdown: "text/markdown",
+  html: "text/html",
+};
+const GOOGLE_DOC = "application/vnd.google-apps.document";
+const GOOGLE_SHEET = "application/vnd.google-apps.spreadsheet";
+
+/** Accepts a Drive URL (…/d/<id>/…, …/folders/<id>, ?id=<id>) or a bare ID. */
+export function driveId(v: unknown, label: string): string {
+  const s = toText(v).trim();
+  const m = /\/d\/([A-Za-z0-9_-]{10,})/.exec(s) ?? /\/folders\/([A-Za-z0-9_-]{10,})/.exec(s) ?? /[?&]id=([A-Za-z0-9_-]{10,})/.exec(s);
+  const id = m?.[1] ?? s;
+  if (!/^[A-Za-z0-9_-]{10,}$/.test(id)) throw new StepError(`${label}: paste a Google Drive link or ID`);
+  return id;
+}
+
+function driveFail(res: HttpResponse): StepError {
+  const e = googleError(res, "Google Drive");
+  if (res.status === 403 && /insufficient|scope|permission/i.test(e.message)) {
+    return new StepError(`${e.message} (reconnect the Google account to grant Drive access)`);
+  }
+  if (res.status === 404) return new StepError("Google Drive: file not found. Conduit can only see files it created or that were opened with it.");
+  return e;
+}
+
+const driveSave: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const name = toText(p.fileName).trim();
+  if (!name) throw new StepError("Add a file name");
+  const content = toText(p.content);
+  if (content.length > MAX_DRIVE_TEXT) throw new StepError("The content is larger than 5 MB");
+  const kind = toText(p.fileType) || "text";
+  const mime = DRIVE_TYPES[kind];
+  if (!mime) throw new StepError(`Unknown file type "${kind}"`);
+  const convert = toText(p.convert) || "none";
+  if (convert === "sheet" && kind !== "csv") throw new StepError("Only CSV content can be saved as a Google Sheet");
+  if (convert === "doc" && !["text", "markdown", "html"].includes(kind)) throw new StepError("Only text, Markdown or HTML can be saved as a Google Doc");
+  const meta: Json = { name };
+  if (convert === "doc") meta.mimeType = GOOGLE_DOC;
+  if (convert === "sheet") meta.mimeType = GOOGLE_SHEET;
+  if (toText(p.folder).trim()) meta.parents = [driveId(p.folder, "Folder")];
+
+  const boundary = `conduit${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n` +
+    `--${boundary}\r\nContent-Type: ${mime}; charset=UTF-8\r\n\r\n${content}\r\n--${boundary}--`;
+  const res = await services.http({
+    method: "POST",
+    url: integrations(services).apiUrl("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink"),
+    headers: { authorization: `Bearer ${accessToken}`, "content-type": `multipart/related; boundary=${boundary}`, accept: "application/json" },
+    body,
+    timeoutMs: 60_000,
+  });
+  if (res.status >= 400) throw driveFail(res);
+  const b = res.body as { id: string; name: string; mimeType: string; webViewLink?: string };
+  return { id: b.id, name: b.name, mimeType: b.mimeType, link: b.webViewLink ?? `https://drive.google.com/file/d/${b.id}/view` };
+};
+
+const driveFind: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const limit = Math.min(Math.max(Math.trunc(toNumber(p.limit ?? 20, "Max files")), 1), 100);
+  const name = toText(p.nameContains).trim();
+  const q = ["trashed = false", ...(name ? [`name contains '${name.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`] : [])].join(" and ");
+  const qs = new URLSearchParams({ q, pageSize: String(limit), orderBy: "modifiedTime desc", fields: "files(id,name,mimeType,webViewLink,modifiedTime,size)" });
+  const res = await callJson(services, { method: "GET", url: `https://www.googleapis.com/drive/v3/files?${qs}`, headers: { authorization: `Bearer ${accessToken}` } });
+  if (res.status >= 400) throw driveFail(res);
+  const files = (res.body as { files?: Array<Record<string, string>> }).files ?? [];
+  return files.map((f) => ({
+    id: f.id,
+    name: f.name,
+    mimeType: f.mimeType,
+    link: f.webViewLink ?? `https://drive.google.com/file/d/${f.id}/view`,
+    modifiedTime: f.modifiedTime ?? null,
+    size: f.size ? Number(f.size) : null,
+  }));
+};
+
+const driveRead: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const id = driveId(p.file, "File");
+  const auth = { authorization: `Bearer ${accessToken}` };
+  const metaRes = await callJson(services, { method: "GET", url: `https://www.googleapis.com/drive/v3/files/${id}?fields=id,name,mimeType,size`, headers: auth });
+  if (metaRes.status >= 400) throw driveFail(metaRes);
+  const meta = metaRes.body as { id: string; name: string; mimeType: string; size?: string };
+  let url: string;
+  if (meta.mimeType === GOOGLE_DOC || meta.mimeType === "application/vnd.google-apps.presentation") url = `https://www.googleapis.com/drive/v3/files/${id}/export?mimeType=text/plain`;
+  else if (meta.mimeType === GOOGLE_SHEET) url = `https://www.googleapis.com/drive/v3/files/${id}/export?mimeType=text/csv`;
+  else if (/^text\/|json|xml|csv|markdown/.test(meta.mimeType)) {
+    if (Number(meta.size ?? 0) > MAX_DRIVE_TEXT) throw new StepError("The file is larger than 5 MB");
+    url = `https://www.googleapis.com/drive/v3/files/${id}?alt=media`;
+  } else throw new StepError(`Only text files, Google Docs and Google Sheets can be read (this file is ${meta.mimeType})`);
+  const res = await services.http({ method: "GET", url: integrations(services).apiUrl(url), headers: { ...auth, accept: "*/*" }, timeoutMs: 60_000 });
+  if (res.status >= 400) throw driveFail(res);
+  const content = typeof res.body === "string" ? res.body : JSON.stringify(res.body);
+  if (content.length > MAX_DRIVE_TEXT) throw new StepError("The file is larger than 5 MB");
+  return { id: meta.id, name: meta.name, mimeType: meta.mimeType, content };
+};
+
 export const APP_ACTIONS: Record<string, AppAction> = {
+  "app.drive.save": driveSave,
+  "app.drive.find": driveFind,
+  "app.drive.read": driveRead,
   "app.whatsapp.send": whatsappSend,
   "app.calendar.create": calendarCreate,
   "app.telegram.send": telegramSend,

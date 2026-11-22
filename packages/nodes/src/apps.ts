@@ -72,7 +72,7 @@ export const APP_DEFINITIONS: readonly AppDefinition[] = [
   {
     id: "google",
     name: "Google",
-    description: "Gmail, Google Sheets and Google Calendar with one Google account.",
+    description: "Gmail, Google Sheets, Google Calendar and Google Drive with one Google account.",
     icon: "Mail",
     auth: {
       kind: "oauth2",
@@ -83,6 +83,7 @@ export const APP_DEFINITIONS: readonly AppDefinition[] = [
         "https://www.googleapis.com/auth/gmail.send",
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/drive.file",
       ],
     },
   },

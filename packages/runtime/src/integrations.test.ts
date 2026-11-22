@@ -616,3 +616,56 @@ describe("Chat trigger publishing", () => {
     expect(await triggers.findChat(path)).toBeNull();
   });
 });
+
+describe("Google Drive", () => {
+  it("saves text and a CSV-as-Sheet, finds them by name, reads them back, and explains failures", async () => {
+    const ws = new ObjectId();
+    const id = await cred(ws, "google", await googleTokens(), { expiresAt: new Date(Date.now() + 3600_000) });
+
+    const saved = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["note", "sheet"] } },
+      { id: "note", type: "app.drive.save", parameters: { credential: id, fileName: "note.txt", content: "Hello ${['$input']['email']}\nline 2", fileType: "text" } },
+      { id: "sheet", type: "app.drive.save", parameters: { credential: id, fileName: "leads", content: "Name,Email\nAna,ana@example.com", fileType: "csv", convert: "sheet" } },
+    ]);
+    expect(saved.done.status).toBe("success");
+    const note = saved.output("note")![0] as { id: string; mimeType: string; link: string };
+    expect(note).toMatchObject({ name: "note.txt", mimeType: "text/plain" });
+    expect(note.link).toBe(`https://drive.google.com/file/d/${note.id}/view`);
+    expect(saved.output("sheet")![0]).toMatchObject({ name: "leads", mimeType: "application/vnd.google-apps.spreadsheet" });
+    expect(fake.state.driveFiles.find((f) => f.id === note.id)?.content).toBe("Hello ana@example.com\nline 2");
+
+    const sheetId = (saved.output("sheet")![0] as { id: string }).id;
+    const found = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["find"] } },
+      { id: "find", type: "app.drive.find", parameters: { credential: id, nameContains: "note", limit: 5 } },
+    ]);
+    expect(found.output("find")!.map((f) => (f as { name: string }).name)).toEqual(["note.txt"]);
+    const q = new URL(`http://x${fake.calls.find((c) => c.path.startsWith("/drive/v3/files?"))!.path}`).searchParams.get("q");
+    expect(q).toBe("trashed = false and name contains 'note'");
+
+    const read = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["a", "b"] } },
+      { id: "a", type: "app.drive.read", parameters: { credential: id, file: `https://drive.google.com/file/d/${note.id}/view` } },
+      { id: "b", type: "app.drive.read", parameters: { credential: id, file: sheetId } },
+    ]);
+    expect(read.output("a")![0]).toMatchObject({ name: "note.txt", content: "Hello ana@example.com\nline 2" });
+    expect(read.output("b")![0]).toMatchObject({ name: "leads", content: "Name,Email\nAna,ana@example.com" });
+    expect(fake.calls.some((c) => c.path.includes(`/files/${sheetId}/export?mimeType=text%2Fcsv`) || c.path.includes(`/files/${sheetId}/export?mimeType=text/csv`))).toBe(true);
+
+    const missing = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["r"] } },
+      { id: "r", type: "app.drive.read", parameters: { credential: id, file: "1MissingFileId_abcdef" } },
+    ]);
+    expect(missing.done.error?.message).toMatch(/file not found\. Conduit can only see files it created/);
+    const badType = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["s"] } },
+      { id: "s", type: "app.drive.save", parameters: { credential: id, fileName: "x", content: "{}", fileType: "json", convert: "sheet" } },
+    ]);
+    expect(badType.done.error?.message).toBe("Only CSV content can be saved as a Google Sheet");
+    const badFolder = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["s"] } },
+      { id: "s", type: "app.drive.save", parameters: { credential: id, fileName: "x", content: "x", folder: "not a folder!" } },
+    ]);
+    expect(badFolder.done.error?.message).toBe("Folder: paste a Google Drive link or ID");
+  });
+});
