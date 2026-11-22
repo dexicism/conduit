@@ -81,6 +81,12 @@ export interface MemoryTurn {
 }
 
 /** Conversation memory for agents, scoped by the runtime to the workflow and step. */
+/** Remembers keys a step has already let through, per workflow and step ("Only new items"). */
+export interface SeenService {
+  /** Which keys are new. `firstRun` is true when this step has never remembered anything in a live run. */
+  filterNew(nodeId: string, keys: string[]): Promise<{ fresh: boolean[]; firstRun: boolean }>;
+}
+
 export interface MemoryService {
   load(nodeId: string, sessionKey: string): Promise<MemoryTurn[]>;
   append(nodeId: string, sessionKey: string, turns: MemoryTurn[], keep: number): Promise<void>;
@@ -118,6 +124,7 @@ export interface EngineServices {
   /** Undefined when no AI model is configured. */
   llm?: LlmService;
   memory?: MemoryService;
+  seen?: SeenService;
   /** Undefined when connected apps aren't available (no encryption key). */
   integrations?: IntegrationServices;
 }

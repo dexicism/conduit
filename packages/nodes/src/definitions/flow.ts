@@ -33,6 +33,40 @@ export const filterNode: NodeDefinition = {
   outputSample: {},
 };
 
+export const onlyNewNode: NodeDefinition = {
+  type: "flow.onlyNew",
+  version: 1,
+  name: "Only new items",
+  description: "Let through only items this step hasn't seen before, so a scheduled check doesn't repeat itself. Test runs don't remember anything.",
+  category: "flow",
+  icon: "Sparkles",
+  color: "sky",
+  keywords: ["dedupe", "duplicate", "new", "unique", "seen", "remember", "once", "changes"],
+  inputs: [{ id: "main" }],
+  outputs: [{ id: "main" }],
+  fields: [
+    {
+      kind: "string",
+      name: "key",
+      label: "What makes an item unique",
+      required: true,
+      default: "${['$input']['id']}",
+      description: "Usually a link or an ID. Items with a key seen before are dropped.",
+    },
+    {
+      kind: "select",
+      name: "firstRun",
+      label: "The very first live run",
+      default: "skip",
+      options: [
+        { value: "skip", label: "Just remember what's there (good for watching a feed)" },
+        { value: "pass", label: "Let everything through" },
+      ],
+    },
+  ],
+  outputSample: {},
+};
+
 export const switchNode: NodeDefinition = {
   type: "flow.switch",
   version: 1,

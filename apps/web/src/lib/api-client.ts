@@ -43,6 +43,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+export interface TemplateCard {
+  id: string;
+  name: string;
+  description: string;
+  setup: string | null;
+  apps: Array<{ id: string; name: string }>;
+  needsAi: boolean;
+  steps: number;
+  /** App ids this server doesn't offer, or "ai" when no AI model is set up. */
+  unavailable: string[];
+}
+
 export const api = {
   listWorkflows: (p: { q?: string; filter: ListFilter; cursor?: string; limit?: number }) => {
     const sp = new URLSearchParams({ filter: p.filter, limit: String(p.limit ?? 20) });
@@ -56,6 +68,8 @@ export const api = {
     request<WorkflowDetail>(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
   duplicateWorkflow: (id: string) => request<WorkflowDetail>(`/api/workflows/${id}/duplicate`, { method: "POST" }),
   deleteWorkflow: (id: string) => request<void>(`/api/workflows/${id}`, { method: "DELETE" }),
+  listTemplates: () => request<{ templates: TemplateCard[] }>("/api/templates"),
+  createFromTemplate: (id: string) => request<WorkflowDetail>(`/api/templates/${encodeURIComponent(id)}`, { method: "POST" }),
   listExecutions: (p: { workflowId?: string; status?: string; cursor?: string }) => {
     const sp = new URLSearchParams({ limit: "25" });
     if (p.workflowId) sp.set("workflowId", p.workflowId);

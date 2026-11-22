@@ -24,6 +24,7 @@ MongoDB, running as a replica set (publishing uses transactions). Everything tha
 | `jobs` | the work queue: `runAt`, `status`, `lockedUntil` (the lease), `attempts` |
 | `builder_conversations` | chat history with the AI builder, per workflow |
 | `agent_memory` | the last N turns per agent step and conversation id |
+| `seen_items` | what each "Only new items" step has already let through (hashed keys). Only live runs add to it; entries expire after 180 days |
 
 ## Connected apps
 

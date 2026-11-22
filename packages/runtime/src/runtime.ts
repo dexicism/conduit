@@ -1,6 +1,7 @@
 import { FINAL_STATUSES, workflowGraphSchema, type ExecutionMode, type WorkflowGraph } from "@conduit/core";
 import { initialState, nextScheduleRun, runExecution, StepError, type EngineServices, type Item, type LlmService } from "@conduit/engine";
 import { createMemoryService, ensureMemoryIndexes } from "./llm";
+import { createSeenService, ensureSeenIndexes } from "./seen";
 import { getDefinition } from "@conduit/nodes";
 import { createOutbound } from "./outbound";
 import { ObjectId, type Db, type Filter } from "mongodb";
@@ -85,7 +86,7 @@ export function createRuntime(
   const runCode = createSandbox({ memoryLimitMb: opts.codeMemoryMb, timeoutMs: opts.codeTimeoutMs });
   let indexes: Promise<void> | null = null;
   const ready = () =>
-    (indexes ??= Promise.all([ensureRuntimeIndexes(db), ensureMemoryIndexes(db), ensureCredentialIndexes(db)])
+    (indexes ??= Promise.all([ensureRuntimeIndexes(db), ensureMemoryIndexes(db), ensureCredentialIndexes(db), ensureSeenIndexes(db)])
       .then(() => undefined)
       .catch((e) => ((indexes = null), Promise.reject(e))));
   const expiry = () => new Date(Date.now() + opts.retentionDays * 86_400_000);
@@ -158,6 +159,7 @@ export function createRuntime(
       now: () => new Date(),
       llm: ai.llm,
       memory: createMemoryService(db, doc.workflowId),
+      seen: createSeenService(db, doc.workflowId, !doc.isTest),
       executeWorkflow: async ({ workflowId, input, waitForResult }) => {
         if (doc.depth + 1 > opts.maxSubworkflowDepth) {
           throw new StepError(`Workflows can call each other at most ${opts.maxSubworkflowDepth} levels deep`);

@@ -1,6 +1,6 @@
 import { collectReferences, hasReferences, INPUT_SOURCE, type WorkflowGraph, type WorkflowNode } from "@conduit/core";
 import { codeNode, executeWorkflowNode, httpRequestNode, respondNode, setFieldsNode } from "./definitions/core";
-import { filterNode, ifNode, loopNode, mergeNode, switchNode, waitNode } from "./definitions/flow";
+import { filterNode, ifNode, loopNode, mergeNode, onlyNewNode, switchNode, waitNode } from "./definitions/flow";
 import { cryptoNode, dateNode, jsonNode, listNode, mathNode, textNode } from "./definitions/transform";
 import { errorTrigger, manualTrigger, scheduleTrigger, subworkflowTrigger, webhookTrigger } from "./definitions/triggers";
 import { agentNode, classifyNode, extractNode, moderateNode, sentimentNode } from "./definitions/ai";
@@ -47,6 +47,7 @@ export const NODE_DEFINITIONS: readonly NodeDefinition[] = [
   ifNode,
   switchNode,
   filterNode,
+  onlyNewNode,
   loopNode,
   mergeNode,
   waitNode,

@@ -16,6 +16,19 @@ export const filterExecutor: Executor = (ctx) => ({
   outputs: { main: ctx.items.filter((_, i) => evaluateGroup(ctx.params(i).conditions as ConditionGroup)) },
 });
 
+/** Lets through only items whose key wasn't seen in an earlier live run of this step. */
+export const onlyNewExecutor: Executor = async (ctx) => {
+  if (!ctx.services.seen) throw new StepError("“Only new items” isn't available here");
+  const keys = ctx.items.map((_, i) => {
+    const k = toText(ctx.params(i).key).trim();
+    if (!k) throw new StepError(`Item ${i + 1} has an empty key. Pick a field that's always set, like a link or an ID.`);
+    return k;
+  });
+  const { fresh, firstRun } = await ctx.services.seen.filterNew(ctx.node.id, keys);
+  if (firstRun && ctx.node.parameters.firstRun !== "pass") return { outputs: { main: [] } };
+  return { outputs: { main: ctx.items.filter((_, i) => fresh[i]) } };
+};
+
 export const switchExecutor: Executor = (ctx) => {
   const raw = ctx.node.parameters;
   const cases = Array.isArray(raw.cases) ? (raw.cases as SwitchCase[]) : [];

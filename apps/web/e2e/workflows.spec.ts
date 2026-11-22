@@ -195,3 +195,25 @@ test.describe("workflows API", () => {
     expect((await page.request.get(`/api/workflows/${mine.id}`)).status()).toBe(200);
   });
 });
+
+test.describe("Templates", () => {
+  test("pick a template from the workflows page and land in the editor with it", async ({ page }) => {
+    await page.goto("/app/workflows");
+    await page.getByRole("button", { name: "Templates" }).click();
+    const list = page.getByRole("list", { name: "Templates" });
+    await expect(list.getByRole("listitem")).toHaveCount(9);
+    const card = list.getByRole("listitem").filter({ hasText: "New blog posts to your phone" });
+    await expect(card).toContainText("ntfy");
+    await expect(card).toContainText("After creating: Put the feed URL");
+    await card.getByRole("button", { name: "Use New blog posts to your phone" }).click();
+    await page.waitForURL(/\/app\/workflows\/[a-f0-9]{24}$/);
+    const id = page.url().split("/").pop()!;
+    const wf = await (await page.request.get(`/api/workflows/${id}`)).json();
+    expect(wf.name).toBe("New blog posts to your phone");
+    expect(wf.draft.nodes.map((n: { type: string }) => n.type)).toEqual(["trigger.schedule", "app.rss.read", "flow.onlyNew", "app.ntfy.send"]);
+    // The canvas shows the steps.
+    await expect(page.getByText("Only new posts")).toBeVisible();
+    // Unknown templates are a clean 404.
+    expect((await page.request.post("/api/templates/nope")).status()).toBe(404);
+  });
+});

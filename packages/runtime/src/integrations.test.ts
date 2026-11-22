@@ -899,3 +899,40 @@ describe("more apps", () => {
     expect(html.done.error?.message).toBe("RSS: that URL didn't return an RSS or Atom feed");
   });
 });
+
+describe("Only new items", () => {
+  async function liveRun(workspaceId: ObjectId, workflowId: ObjectId, nodes: N[], items: Array<Record<string, unknown>>, mode: "production" | "test" = "production") {
+    const g = graph(nodes);
+    const id = await rt.createExecution(
+      { workspaceId, workflowId, workflowName: "feed", versionId: null, mode, graph: g, triggerNodeId: nodes[0]!.id, triggerItems: items.map((json) => ({ json })) },
+      false,
+    );
+    await rt.processExecution(id);
+    const step = await rt.collections.steps.findOne({ executionId: id, nodeId: "new" });
+    return (step?.output.main ?? []).map((i) => (i.json as { link: string }).link);
+  }
+
+  it("remembers what it let through, skips the first live run by default, and test runs don't remember", async () => {
+    const ws = new ObjectId();
+    const wf = new ObjectId();
+    const nodes: N[] = [
+      { id: "t", type: "trigger.manual", to: { main: ["new"] } },
+      { id: "new", type: "flow.onlyNew", parameters: { key: "${['$input']['link']}" } },
+    ];
+    const posts = (...ids: number[]) => ids.map((n) => ({ link: `https://blog.test/${n}` }));
+
+    // A test run before going live shows everything that would count as new, and remembers nothing.
+    expect(await liveRun(ws, wf, nodes, posts(1, 2), "test")).toEqual(["https://blog.test/1", "https://blog.test/2"]);
+    // First live run: just learn what's already in the feed.
+    expect(await liveRun(ws, wf, nodes, posts(1, 2))).toEqual([]);
+    // Next run: only the new post, and a duplicate inside one run counts once.
+    expect(await liveRun(ws, wf, nodes, [...posts(1, 2, 3), ...posts(3)])).toEqual(["https://blog.test/3"]);
+    expect(await liveRun(ws, wf, nodes, posts(1, 2, 3))).toEqual([]);
+    // Another workflow has its own memory.
+    expect(await liveRun(ws, new ObjectId(), [nodes[0]!, { ...nodes[1]!, parameters: { ...nodes[1]!.parameters, firstRun: "pass" } }], posts(1))).toEqual(["https://blog.test/1"]);
+    // An empty key is an error, not a silent drop.
+    const g = graph([nodes[0]!, { id: "new", type: "flow.onlyNew", parameters: { key: "${['$input']['missing']}" } }]);
+    const id = await rt.createExecution({ workspaceId: ws, workflowId: wf, workflowName: "feed", versionId: null, mode: "production", graph: g, triggerNodeId: "t", triggerItems: [{ json: {} }] }, false);
+    expect((await rt.processExecution(id)).error?.message).toMatch(/Item 1 has an empty key/);
+  });
+});

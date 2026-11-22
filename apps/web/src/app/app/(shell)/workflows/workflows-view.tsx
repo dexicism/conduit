@@ -10,6 +10,7 @@ import {
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
+  LayoutTemplateIcon,
   RefreshCwIcon,
   SearchIcon,
   Trash2Icon,
@@ -22,6 +23,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/workflows/status-badge";
+import { TemplatesDialog } from "@/components/workflows/templates-dialog";
 import { WorkflowFormDialog, type WorkflowFormValues } from "@/components/workflows/workflow-form-dialog";
 import {
   AlertDialog,
@@ -136,6 +138,7 @@ export function WorkflowsView() {
     setCreateOpen(true);
   }
 
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const isFiltered = q.length > 0;
   const showEmpty = list.isSuccess && items.length === 0;
 
@@ -146,11 +149,18 @@ export function WorkflowsView() {
           <h1 className="text-2xl font-semibold tracking-tight">Workflows</h1>
           <p className="mt-1 text-sm text-muted-foreground">Automations in this workspace.</p>
         </div>
-        <Button onClick={openCreate}>
-          <PlusIcon data-icon="inline-start" />
-          New workflow
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setTemplatesOpen(true)}>
+            <LayoutTemplateIcon data-icon="inline-start" />
+            Templates
+          </Button>
+          <Button onClick={openCreate}>
+            <PlusIcon data-icon="inline-start" />
+            New workflow
+          </Button>
+        </div>
       </div>
+      <TemplatesDialog open={templatesOpen} onOpenChange={setTemplatesOpen} />
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
@@ -215,7 +225,7 @@ export function WorkflowsView() {
             </Button>
           </div>
         ) : showEmpty ? (
-          <EmptyState filter={filter} filtered={isFiltered} onCreate={openCreate} onClear={() => setSearch("")} />
+          <EmptyState filter={filter} filtered={isFiltered} onCreate={openCreate} onTemplates={() => setTemplatesOpen(true)} onClear={() => setSearch("")} />
         ) : (
           <>
             <ul aria-label="Workflows" className="divide-y overflow-hidden rounded-xl border bg-card">
@@ -355,11 +365,13 @@ function EmptyState({
   filter,
   filtered,
   onCreate,
+  onTemplates,
   onClear,
 }: {
   filter: ListFilter;
   filtered: boolean;
   onCreate: () => void;
+  onTemplates: () => void;
   onClear: () => void;
 }) {
   if (filtered) {
@@ -391,9 +403,14 @@ function EmptyState({
         <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
           A workflow starts with a trigger and runs a chain of steps every time it fires.
         </p>
-        <Button className="mt-5" onClick={onCreate}>
-          <PlusIcon data-icon="inline-start" /> New workflow
-        </Button>
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          <Button onClick={onTemplates}>
+            <LayoutTemplateIcon data-icon="inline-start" /> Start from a template
+          </Button>
+          <Button variant="outline" onClick={onCreate}>
+            <PlusIcon data-icon="inline-start" /> Blank workflow
+          </Button>
+        </div>
       </div>
     </div>
   );

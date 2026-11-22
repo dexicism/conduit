@@ -50,6 +50,7 @@ import {
   MailPlus,
   BellRing,
   Rss,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -64,6 +65,7 @@ export const ICONS: Record<string, LucideIcon> = {
   MailPlus,
   BellRing,
   Rss,
+  Sparkles,
   AtSign,
   CalendarPlus,
   ClipboardList,

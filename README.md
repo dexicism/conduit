@@ -13,9 +13,10 @@ The AI runs locally through [Ollama](https://ollama.com), so there's no API bill
 
 ## What's in it
 
+- **Templates:** nine ready-made workflows to start from (an AI Telegram bot, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
 - **Editor:** 50-odd kinds of steps, a settings panel for each one, a picker for pulling data from earlier steps, undo/redo, copy/paste, sticky notes, auto-layout. It auto-saves and won't let two tabs overwrite each other.
 - **Triggers:** manual, webhook, schedule, form, chat page, Telegram, "called by another workflow", and "on error".
-- **Logic:** if/switch, loops, filter, merge, set fields, text/math/date/JSON helpers, HTTP requests, and a JavaScript step that runs in a sandbox.
+- **Logic:** if/switch, loops, filter, merge, "only new items" (remembers what it's already seen, so a feed check every hour doesn't repeat itself), set fields, text/math/date/JSON helpers, HTTP requests, and a JavaScript step that runs in a sandbox.
 - **AI:** an agent that can use tools and remember a conversation, plus classify, sentiment, moderation and "pull data out of this text" steps. There's also a chat builder: describe a workflow and it drafts it on the canvas.
 - **Apps:** Telegram, Gmail, Google Sheets, Calendar and Drive, Notion, Airtable, Slack, Discord, WhatsApp Business, GitHub, Trello, Todoist, Mailchimp, ntfy (push notifications to your phone), RSS feeds, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
 - **The rest:** run history with every step's input and output, teams with roles, API keys and a REST API, outgoing webhooks, an MCP server so AI assistants can read and edit workflows, and two-step sign-in.

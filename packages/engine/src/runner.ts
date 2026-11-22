@@ -3,7 +3,7 @@ import { getDefinition, outputsOf, reaches, TOOL_HANDLE, type NodeDefinition } f
 import { agentExecutor, classifyExecutor, extractExecutor, moderateExecutor, sentimentExecutor } from "./executors/ai";
 import { APP_ACTIONS, appActionExecutor } from "./executors/apps";
 import { codeExecutor, executeWorkflowExecutor, httpExecutor, respondExecutor, setExecutor } from "./executors/core";
-import { combineMerge, filterExecutor, ifExecutor, switchExecutor, waitExecutor } from "./executors/flow";
+import { combineMerge, filterExecutor, ifExecutor, onlyNewExecutor, switchExecutor, waitExecutor } from "./executors/flow";
 import { cryptoExecutor, dateExecutor, jsonExecutor, listExecutor, mathExecutor, textExecutor } from "./executors/transform";
 import {
   StepError,
@@ -24,6 +24,7 @@ export const MAX_STEPS = 10_000;
 const EXECUTORS: Record<string, Executor> = {
   "flow.if": ifExecutor,
   "flow.filter": filterExecutor,
+  "flow.onlyNew": onlyNewExecutor,
   "flow.switch": switchExecutor,
   "flow.wait": waitExecutor,
   "core.http": httpExecutor,
