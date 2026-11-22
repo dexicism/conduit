@@ -669,3 +669,40 @@ describe("Google Drive", () => {
     expect(badFolder.done.error?.message).toBe("Folder: paste a Google Drive link or ID");
   });
 });
+
+describe("Telegram polling, bad updates", () => {
+  it("skips an update that keeps failing instead of blocking the bot", async () => {
+    // Earlier tests leave bots live; one poller per bot, like in real life.
+    await db.collection("triggers").deleteMany({ kind: "telegram" });
+    const ws = new ObjectId();
+    const id = await cred(ws, "telegram", { botToken: FAKE.telegramToken });
+    const wf = new ObjectId();
+    const g = graph([{ id: "tg", type: "trigger.telegram", parameters: { credential: id } }]);
+    await db.collection("workflows").insertOne({ _id: wf, workspaceId: ws, name: "bad", revision: 1, draft: g, publishedVersionId: null, archivedAt: null });
+    const triggers = createTriggerService(db, client, {
+      telegram: { urlFor: (p) => p, register: (w, c) => integ.telegram.deleteWebhook(w, c, true), unregister: async () => {} },
+    });
+    await triggers.publish(ws, wf, userId);
+    fake.state.telegramUpdates.push({ update_id: 900, message: { message_id: 1, text: "boom", chat: { id: 1 } } });
+    fake.state.telegramUpdates.push({ update_id: 901, message: { message_id: 2, text: "fine", chat: { id: 1 } } });
+    const started: string[] = [];
+    const flaky = {
+      async createExecution(input: { triggerItems: Array<{ json: Record<string, unknown> }> }) {
+        const text = (input.triggerItems[0]!.json.message as { text: string }).text;
+        if (text === "boom") throw new Error("database hiccup");
+        started.push(text);
+        return new ObjectId();
+      },
+    } as unknown as Pick<Runtime, "createExecution">;
+    const poller = startTelegramPoller(db, integ, flaky, { timeoutSec: 0, idleMs: 20, errorBackoffMs: 20 });
+    try {
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && !started.includes("fine")) await new Promise((r) => setTimeout(r, 50));
+      expect(started).toEqual(["fine"]);
+      expect((await triggers.activeTriggers(wf))[0]?.pollOffset).toBe(902);
+    } finally {
+      await poller.stop();
+      await triggers.unpublish(ws, wf);
+    }
+  }, 20_000);
+});

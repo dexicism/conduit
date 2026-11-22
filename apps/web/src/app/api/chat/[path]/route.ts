@@ -6,8 +6,10 @@ export const dynamic = "force-dynamic";
 const notFound = () => NextResponse.json({ error: "not_found", message: "This chat isn't available" }, { status: 404 });
 const bad = (message: string, status = 400) => NextResponse.json({ error: "invalid_request", message }, { status });
 
-function clientIp(req: Request): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "local";
+// Only trust the forwarded IP behind a proxy you control (it sets the header); otherwise anyone can fake it.
+function clientIp(req: Request): string | null {
+  if (process.env.TRUST_PROXY !== "1") return null;
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null;
 }
 
 /** A visitor's message to a published chat. Public: no sign-in. Starts one live run. */
@@ -30,7 +32,9 @@ export async function POST(req: Request, ctx: RouteContext<"/api/chat/[path]">) 
   if (message.length > MAX_CHAT_MESSAGE) return bad(`Keep messages under ${MAX_CHAT_MESSAGE} characters`, 413);
   // Honeypot: people never see the "website" field, bots fill it.
   if (body.website) return NextResponse.json({ runId: null });
-  if (overLimit(`s:${sessionId}`, 10) || overLimit(`ip:${clientIp(req)}`, 30)) {
+  const ip = clientIp(req);
+  // Session ids are made up by the browser, so the per-chat cap is the one a script can't dodge.
+  if (overLimit(`s:${sessionId}`, 10) || (ip && overLimit(`ip:${ip}`, 30)) || overLimit(`chat:${path}`, 60)) {
     return NextResponse.json({ error: "rate_limited", message: "You're sending messages too fast. Wait a minute and try again." }, { status: 429 });
   }
   try {

@@ -53,6 +53,8 @@ export function startTelegramPoller(db: Db, integrations: Integrations, runtime:
   const backoffMs = opts.errorBackoffMs ?? 5000;
   const offsets = new Map<string, number>();
   const lastError = new Map<string, string>();
+  // update id -> failed attempts, so one bad update can't block a bot forever
+  const failures = new Map<string, number>();
   let stopped = false;
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -64,8 +66,19 @@ export function startTelegramPoller(db: Db, integrations: Integrations, runtime:
       if (lastError.delete(bot)) console.info(`[telegram] bot ${bot} is receiving again`);
       for (const u of updates) {
         const id = Number(u.update_id);
-        const input = await telegramRunInput(db, t, u);
-        if (input) await runtime.createExecution(input, true);
+        try {
+          const input = await telegramRunInput(db, t, u);
+          if (input) await runtime.createExecution(input, true);
+          failures.delete(`${bot}:${id}`);
+        } catch (err) {
+          const n = (failures.get(`${bot}:${id}`) ?? 0) + 1;
+          if (n < 3) {
+            failures.set(`${bot}:${id}`, n);
+            throw err;
+          }
+          failures.delete(`${bot}:${id}`);
+          console.error(`[telegram] skipping update ${id} for bot ${bot} after 3 failures: ${(err as Error).message}`);
+        }
         if (Number.isFinite(id)) {
           offsets.set(bot, id + 1);
           await c.triggers.updateOne({ _id: t._id }, { $max: { pollOffset: id + 1 } });

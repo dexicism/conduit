@@ -41,6 +41,10 @@ export async function GET(req: Request) {
     if (!tokens.refreshToken) return done({ error: `${app.name} didn't grant offline access. Remove Conduit from your account's connected apps and try again.` });
     const email = await fetchAccountEmail(integrations.http, integrations.apiUrl, app.auth.provider, tokens.accessToken);
     if (pending.reconnectId) {
+      const existing = await integrations.find(pending.workspaceId, pending.reconnectId);
+      if (existing?.account && email && existing.account.toLowerCase() !== email.toLowerCase()) {
+        return done({ error: `You signed in as ${email}, but this connection is for ${existing.account}. Reconnect with that account, or add ${email} as a new connection.` });
+      }
       const renewed = await integrations.replaceTokens(pending.workspaceId, pending.reconnectId, {
         values: { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken },
         account: email,

@@ -353,7 +353,7 @@ export function driveId(v: unknown, label: string): string {
 
 function driveFail(res: HttpResponse): StepError {
   const e = googleError(res, "Google Drive");
-  if (res.status === 403 && /insufficient|scope|permission/i.test(e.message)) {
+  if (res.status === 403 && /insufficient authentication scopes|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(JSON.stringify(res.body ?? ""))) {
     return new StepError(`${e.message} (reconnect the Google account to grant Drive access)`);
   }
   if (res.status === 404) return new StepError("Google Drive: file not found. Conduit can only see files it created or that were opened with it.");
