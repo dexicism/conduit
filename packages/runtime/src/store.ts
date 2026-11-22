@@ -110,6 +110,8 @@ export async function ensureRuntimeIndexes(db: Db): Promise<void> {
   await Promise.all([
     c.executions.createIndex({ workspaceId: 1, startedAt: -1, _id: -1 }),
     c.executions.createIndex({ workflowId: 1, startedAt: -1 }),
+    // Failed-runs list on the home page and the status filter on Runs.
+    c.executions.createIndex({ workspaceId: 1, status: 1, startedAt: -1 }),
     c.executions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     c.steps.createIndex({ executionId: 1, index: 1 }),
     c.steps.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),

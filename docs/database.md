@@ -18,13 +18,14 @@ MongoDB, running as a replica set (publishing uses transactions). Everything tha
 |---|---|
 | `workflows` | name, the `draft` graph, `revision` (bumped on every save, used to catch two tabs editing at once), `publishedVersionId` |
 | `workflow_versions` | frozen copies of the graph, one per publish. Live runs always use one of these |
-| `triggers` | one row per live trigger: webhook/form/chat path, Telegram bot and secret, next schedule time. Also short-lived rows for the editor's "listen for a test request" |
+| `triggers` | one row per live trigger: webhook/form/chat path, Telegram bot and secret, WhatsApp connection, next schedule time. Also short-lived rows for the editor's "listen for a test request" |
 | `executions` | one per run: status, mode (test or live), the graph it ran, engine state, the webhook response if any, error, timings. Expires after `EXECUTION_RETENTION_DAYS` |
 | `execution_steps` | one per step that ran: input, output (capped at 200 KB), logs, error, timing. Secrets are masked before saving. Expires with the run |
 | `jobs` | the work queue: `runAt`, `status`, `lockedUntil` (the lease), `attempts` |
 | `builder_conversations` | chat history with the AI builder, per workflow |
 | `agent_memory` | the last N turns per agent step and conversation id |
-| `seen_items` | what each "Only new items" step has already let through (hashed keys). Only live runs add to it; entries expire after 180 days |
+| `seen_items` | what each "Only new items" step has already let through (hashed keys). Only live runs add to it; entries expire after 180 days. Incoming WhatsApp message ids go here too, so Meta's retries don't start a second run |
+| `variables` | workspace variables (`${['$vars']['NAME']}`). Secret values are encrypted the same way as saved accounts |
 
 ## Connected apps
 

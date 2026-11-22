@@ -13,9 +13,12 @@ The AI runs locally through [Ollama](https://ollama.com), so there's no API bill
 
 ## What's in it
 
-- **Templates:** nine ready-made workflows to start from (an AI Telegram bot, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
+- **Home page:** how your live workflows did this week: runs per day, success rate, the busiest workflows and the latest failures, with a link straight to each failed run.
+- **Templates:** ten ready-made workflows to start from (AI bots for Telegram and WhatsApp, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
 - **Editor:** 50-odd kinds of steps, a settings panel for each one, a picker for pulling data from earlier steps, undo/redo, copy/paste, sticky notes, auto-layout. It auto-saves and won't let two tabs overwrite each other.
-- **Triggers:** manual, webhook, schedule, form, chat page, Telegram, "called by another workflow", and "on error".
+- **Version history:** every publish is saved. Open one, restore it into the editor, publish again. There's also **Download as file** and **Import** for sharing a workflow (accounts are left out of the file).
+- **Variables:** put things like a phone number or a sheet link in Team & settings once, then use `${['$vars']['NAME']}` in any step. Secret ones are encrypted and show up as `[hidden]` in run logs.
+- **Triggers:** manual, webhook, schedule, form, chat page, Telegram, WhatsApp, "called by another workflow", and "on error".
 - **Logic:** if/switch, loops, filter, merge, "only new items" (remembers what it's already seen, so a feed check every hour doesn't repeat itself), set fields, text/math/date/JSON helpers, HTTP requests, and a JavaScript step that runs in a sandbox.
 - **AI:** an agent that can use tools and remember a conversation, plus classify, sentiment, moderation and "pull data out of this text" steps. There's also a chat builder: describe a workflow and it drafts it on the canvas.
 - **Apps:** Telegram, Gmail, Google Sheets, Calendar and Drive, Notion, Airtable, Slack, Discord, WhatsApp Business, GitHub, Trello, Todoist, Mailchimp, ntfy (push notifications to your phone), RSS feeds, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
@@ -69,6 +72,15 @@ Saved accounts are encrypted. In dev the key is created for you in `.data/encryp
 
 Google logs test apps out every 7 days. When that happens, hit **Reconnect** under Connections. Drive can only see files Conduit made itself, which is on purpose. The `scripts/try-google-*.mts` scripts check each Google service against your real account.
 
+**WhatsApp:** uses Meta's official Cloud API, so it stays within WhatsApp's rules (unofficial WhatsApp Web bots can get a number banned). Meta's test number is free and can message up to 5 numbers you verify.
+
+1. Make an app at developers.facebook.com, add WhatsApp, and copy the Phone number ID and an access token from API Setup. Connect it under Connections.
+2. Sending works right away. For receiving, Meta needs a public address, so start a Cloudflare tunnel (below) and set `PUBLIC_URL`.
+3. Hit **Receive messages** on the connection. Add the App secret and a verify token you make up (the key button), then paste the callback URL and the same verify token into Meta (WhatsApp, Configuration) and subscribe to `messages`.
+4. Use the "AI WhatsApp assistant" template, or any workflow that starts with "WhatsApp message".
+
+Replies within 24 hours of a customer's message are free-form. After that WhatsApp only allows approved templates, which the send step supports.
+
 **Everything else** just needs a key pasted under Connections. The connect dialog says where to find it for each app, but roughly:
 
 - **Notion:** make an internal integration at notion.so/profile/integrations, then add it to each database (••• → Connections). Without that last bit you get "not found".
@@ -97,7 +109,7 @@ npm run typecheck
 npm run e2e         # Playwright; needs `npm run db` running, starts its own app on :3100
 ```
 
-The tests use fake versions of every app (`packages/runtime/src/testing/fake-apis.ts`), so they run offline and never touch real accounts. Telegram, the Google apps and ntfy have also been checked for real (`scripts/try-*.mts`); Notion, Airtable, Discord, GitHub, Trello, Todoist and Mailchimp so far only against the fakes.
+The tests use fake versions of every app (`packages/runtime/src/testing/fake-apis.ts`), so they run offline and never touch real accounts. Telegram, the Google apps and ntfy have also been checked for real (`scripts/try-*.mts`); WhatsApp, Notion, Airtable, Discord, GitHub, Trello, Todoist and Mailchimp so far only against the fakes.
 
 ## Where things live
 
