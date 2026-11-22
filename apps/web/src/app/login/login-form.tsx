@@ -1,17 +1,16 @@
 "use client";
 
 import { ArrowLeftIcon, ArrowRightIcon, Loader2Icon, MailIcon } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
 
-const emailSchema = z.email("Enter a valid email address");
+// Just a sanity check; the server is the real judge of what an address is.
+const EMAIL = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 const RESEND_SECONDS = 30;
 
 interface Props {
@@ -56,14 +55,14 @@ export function LoginForm({ next, google, github, devOutbox }: Props) {
 
   async function sendCode(e?: React.FormEvent) {
     e?.preventDefault();
-    const parsed = emailSchema.safeParse(email.trim());
-    if (!parsed.success) {
-      setEmailError(parsed.error.issues[0]?.message ?? "Enter a valid email address");
+    const address = email.trim();
+    if (!EMAIL.test(address)) {
+      setEmailError("Enter a valid email address");
       return;
     }
     setEmailError(null);
     setPending("send");
-    const { error } = await authClient.emailOtp.sendVerificationOtp({ email: parsed.data, type: "sign-in" });
+    const { error } = await authClient.emailOtp.sendVerificationOtp({ email: address, type: "sign-in" });
     setPending(null);
     if (error) {
       setEmailError(
@@ -71,7 +70,7 @@ export function LoginForm({ next, google, github, devOutbox }: Props) {
       );
       return;
     }
-    setEmail(parsed.data);
+    setEmail(address);
     setCode("");
     setCodeError(null);
     setStep("code");
@@ -113,15 +112,9 @@ export function LoginForm({ next, google, github, devOutbox }: Props) {
   const busy = pending !== null;
 
   return (
-    <AnimatePresence mode="wait" initial={false}>
+    <>
       {step === "email" ? (
-        <motion.div
-          key="email"
-          initial={{ opacity: 0, x: -12 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -12 }}
-          transition={{ duration: 0.18 }}
-        >
+        <div key="email" className="animate-in fade-in slide-in-from-left-3 duration-200 motion-reduce:animate-none">
           <h1 className="text-2xl font-semibold tracking-tight">Sign in to Conduit</h1>
           <p className="mt-2 text-sm text-muted-foreground">New here? The same step creates your account.</p>
 
@@ -180,15 +173,9 @@ export function LoginForm({ next, google, github, devOutbox }: Props) {
           <p className="mt-6 text-xs text-muted-foreground">
             By continuing you agree to the terms of service and privacy policy.
           </p>
-        </motion.div>
+        </div>
       ) : (
-        <motion.div
-          key="code"
-          initial={{ opacity: 0, x: 12 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 12 }}
-          transition={{ duration: 0.18 }}
-        >
+        <div key="code" className="animate-in fade-in slide-in-from-right-3 duration-200 motion-reduce:animate-none">
           <button
             type="button"
             onClick={() => setStep("email")}
@@ -265,8 +252,8 @@ export function LoginForm({ next, google, github, devOutbox }: Props) {
               </button>
             )}
           </div>
-        </motion.div>
+        </div>
       )}
-    </AnimatePresence>
+    </>
   );
 }

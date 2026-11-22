@@ -22,10 +22,16 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-import { CodeEditor } from "./code-editor";
+import dynamic from "next/dynamic";
 import { CredentialSelect, DynamicSuggestions } from "./credential-field";
 import type { DataSource } from "./data-context";
 import { ExpressionInput } from "./expression-input";
+
+// CodeMirror is big; only load it when a Code step's panel is open.
+const CodeEditor = dynamic(() => import("./code-editor").then((m) => m.CodeEditor), {
+  ssr: false,
+  loading: () => <div className="h-[262px] animate-pulse rounded-lg border bg-muted/40" aria-label="Loading code editor" />,
+});
 
 export function NativeSelect({
   className,

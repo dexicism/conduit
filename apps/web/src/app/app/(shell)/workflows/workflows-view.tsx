@@ -18,7 +18,6 @@ import {
   WorkflowIcon,
   XIcon,
 } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -272,75 +271,68 @@ export function WorkflowsView({ openTemplates = false }: { openTemplates?: boole
         ) : (
           <>
             <ul aria-label="Workflows" className="divide-y overflow-hidden rounded-xl border bg-card">
-              <AnimatePresence initial={false}>
-                {items.map((wf) => (
-                  <motion.li
-                    key={wf.id}
-                    layout
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.15 }}
-                    className="group relative flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40"
-                  >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <WorkflowIcon className="size-4" aria-hidden />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <Link
-                        href={`/app/workflows/${wf.id}`}
-                        className="block truncate font-medium after:absolute after:inset-0 focus-visible:outline-none"
+              {items.map((wf) => (
+                <li
+                  key={wf.id}
+                  className="group relative flex animate-in items-center gap-3 px-4 py-3.5 fade-in duration-150 hover:bg-muted/40 motion-reduce:animate-none"
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <WorkflowIcon className="size-4" aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      href={`/app/workflows/${wf.id}`}
+                      className="block truncate font-medium after:absolute after:inset-0 focus-visible:outline-none"
+                    >
+                      {wf.name}
+                    </Link>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {wf.description ? `${wf.description} · ` : ""}Edited {relativeTime(wf.updatedAt)}
+                    </p>
+                  </div>
+                  <StatusBadge status={wf.status} className="hidden sm:inline-flex" />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="relative z-10"
+                          aria-label={`Actions for ${wf.name}`}
+                        />
+                      }
+                    >
+                      <MoreHorizontalIcon />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setEditError(null);
+                          setEditing(wf);
+                        }}
                       >
-                        {wf.name}
-                      </Link>
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                        {wf.description ? `${wf.description} · ` : ""}Edited {relativeTime(wf.updatedAt)}
-                      </p>
-                    </div>
-                    <StatusBadge status={wf.status} className="hidden sm:inline-flex" />
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="relative z-10"
-                            aria-label={`Actions for ${wf.name}`}
-                          />
-                        }
-                      >
-                        <MoreHorizontalIcon />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44">
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setEditError(null);
-                            setEditing(wf);
-                          }}
-                        >
-                          <PencilIcon /> Rename
+                        <PencilIcon /> Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => duplicate.mutate(wf.id)}>
+                        <CopyIcon /> Duplicate
+                      </DropdownMenuItem>
+                      {wf.status === "archived" ? (
+                        <DropdownMenuItem onClick={() => update.mutate({ id: wf.id, archived: false })}>
+                          <ArchiveRestoreIcon /> Restore
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => duplicate.mutate(wf.id)}>
-                          <CopyIcon /> Duplicate
+                      ) : (
+                        <DropdownMenuItem onClick={() => update.mutate({ id: wf.id, archived: true })}>
+                          <ArchiveIcon /> Archive
                         </DropdownMenuItem>
-                        {wf.status === "archived" ? (
-                          <DropdownMenuItem onClick={() => update.mutate({ id: wf.id, archived: false })}>
-                            <ArchiveRestoreIcon /> Restore
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem onClick={() => update.mutate({ id: wf.id, archived: true })}>
-                            <ArchiveIcon /> Archive
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onClick={() => setDeleting(wf)}>
-                          <Trash2Icon /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </motion.li>
-                ))}
-              </AnimatePresence>
+                      )}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem variant="destructive" onClick={() => setDeleting(wf)}>
+                        <Trash2Icon /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </li>
+              ))}
             </ul>
             {list.hasNextPage && (
               <div className="mt-4 flex justify-center">
