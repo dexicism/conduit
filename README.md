@@ -11,6 +11,14 @@ What's in it:
 - **Teams and billing:** workspaces with invites and roles, per-step credits, plans, Stripe subscriptions.
 - **Platform:** API keys and a public REST API (`/api/v1`), signed outgoing webhooks, an MCP server with OAuth 2.1 so AI assistants can read and edit workflows, two-step sign-in.
 
+## Quick start on Windows (one click)
+
+Double-click **Start Conduit** (on the desktop, or `Start Conduit.cmd` in this folder). It starts the local AI (Ollama), the database and the app, loads the AI model, and opens http://localhost:3000. The first start takes about a minute. Two minimized "Conduit" windows stay open while it runs.
+
+Double-click **Stop Conduit** to stop the app and the database cleanly. Ollama keeps running in the tray.
+
+Telegram bots, schedules and other workflows run only while Conduit is running.
+
 ## Requirements
 
 - Node.js 22.12+ (24.22+ recommended)
