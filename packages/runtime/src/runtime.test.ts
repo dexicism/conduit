@@ -304,3 +304,49 @@ describe("publishing and schedules", () => {
     expect(await triggers.findWebhook("unique-path-1", false)).toBeNull();
   });
 });
+
+describe("home page numbers", () => {
+  it("counts live runs per day, leaves test runs out, and lists the busiest workflows and failures", async () => {
+    const ws = new ObjectId();
+    const a = new ObjectId();
+    const b = new ObjectId();
+    const now = new Date("2026-03-10T15:00:00Z");
+    const at = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86_400_000);
+    const run = (workflowId: ObjectId, name: string, status: string, startedAt: Date, mode = "production", durationMs = 100) => ({
+      _id: new ObjectId(),
+      workspaceId: ws,
+      workflowId,
+      workflowName: name,
+      status,
+      mode,
+      startedAt,
+      durationMs,
+      triggerNodeId: "t",
+      triggerType: "trigger.manual",
+      error: status === "failed" ? { message: "boom" } : null,
+    });
+    await db.collection("executions").insertMany([
+      run(a, "Bot", "success", at(0)),
+      run(a, "Bot", "success", at(0), "production", 300),
+      run(a, "Bot", "failed", at(1)),
+      run(b, "Sheet", "success", at(2)),
+      run(b, "Sheet", "success", at(0), "test"),
+      run(b, "Sheet", "success", at(9)),
+      { ...run(a, "Bot", "success", at(0)), workspaceId: new ObjectId() },
+    ]);
+    const o = await createExecutionQueries(db).overview(ws, 7, now);
+    expect(o.total).toBe(4);
+    expect(o.succeeded).toBe(3);
+    expect(o.failed).toBe(1);
+    expect(o.successRate).toBe(0.75);
+    expect(o.avgDurationMs).toBe(150);
+    expect(o.days).toHaveLength(7);
+    expect(o.days.at(-1)).toEqual({ day: "2026-03-10", success: 2, failed: 0, other: 0 });
+    expect(o.days.at(-2)).toEqual({ day: "2026-03-09", success: 0, failed: 1, other: 0 });
+    expect(o.workflows.map((w) => [w.name, w.runs, w.failed])).toEqual([
+      ["Bot", 3, 1],
+      ["Sheet", 1, 0],
+    ]);
+    expect(o.recentFailures.map((f) => f.error?.message)).toEqual(["boom"]);
+  });
+});

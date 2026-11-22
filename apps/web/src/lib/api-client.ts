@@ -1,6 +1,7 @@
 import type {
   ExecutionDetail,
   ExecutionSummary,
+  RunOverview,
   ApiErrorBody,
   CreateWorkflowInput,
   ListFilter,
@@ -10,6 +11,13 @@ import type {
   WorkflowSummary,
 } from "@conduit/core";
 import type { AppInfo, CredentialView } from "./app-info";
+
+export interface HomeOverview {
+  runs: RunOverview;
+  workflows: { total: number; live: number };
+  connections: number;
+  nextScheduled: { workflowId: string; name: string; at: string } | null;
+}
 
 export class ClientApiError extends Error {
   constructor(
@@ -77,6 +85,7 @@ export const api = {
     if (p.cursor) sp.set("cursor", p.cursor);
     return request<Page<ExecutionSummary>>(`/api/executions?${sp}`);
   },
+  overview: () => request<HomeOverview>("/api/overview"),
   getExecution: (id: string) => request<ExecutionDetail>(`/api/executions/${id}`),
   cancelExecution: (id: string) => request<ExecutionSummary>(`/api/executions/${id}/cancel`, { method: "POST" }),
   retryExecution: (id: string) => request<{ executionId: string }>(`/api/executions/${id}/retry`, { method: "POST" }),

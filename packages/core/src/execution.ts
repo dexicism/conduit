@@ -88,3 +88,19 @@ export interface PublishResult {
   publishedAt: string;
   triggers: ActiveTrigger[];
 }
+
+/** The home page numbers. */
+export interface RunOverview {
+  since: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  /** Queued, running or waiting right now. */
+  running: number;
+  /** Share of finished runs that succeeded, or null with no finished runs. */
+  successRate: number | null;
+  avgDurationMs: number | null;
+  days: Array<{ day: string; success: number; failed: number; other: number }>;
+  workflows: Array<{ id: string; name: string; runs: number; failed: number; lastRunAt: string }>;
+  recentFailures: ExecutionSummary[];
+}

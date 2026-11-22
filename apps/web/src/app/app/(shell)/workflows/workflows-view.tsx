@@ -62,7 +62,7 @@ const FILTERS: Array<{ value: ListFilter; label: string }> = [
   { value: "archived", label: "Archived" },
 ];
 
-export function WorkflowsView() {
+export function WorkflowsView({ openTemplates = false }: { openTemplates?: boolean }) {
   const router = useRouter();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
@@ -138,7 +138,7 @@ export function WorkflowsView() {
     setCreateOpen(true);
   }
 
-  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(openTemplates);
   const isFiltered = q.length > 0;
   const showEmpty = list.isSuccess && items.length === 0;
 

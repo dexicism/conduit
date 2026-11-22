@@ -1,6 +1,6 @@
 "use client";
 
-import { HistoryIcon, LogOutIcon, PlugIcon, SettingsIcon, MenuIcon, MoonIcon, SunIcon, WorkflowIcon } from "lucide-react";
+import { HistoryIcon, HouseIcon, LogOutIcon, PlugIcon, SettingsIcon, MenuIcon, MoonIcon, SunIcon, WorkflowIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 
 // Only sections that exist are listed. New sections are added as they ship.
 const NAV = [
+  { href: "/app/home", label: "Home", icon: HouseIcon },
   { href: "/app/workflows", label: "Workflows", icon: WorkflowIcon },
   { href: "/app/executions", label: "Runs", icon: HistoryIcon },
   { href: "/app/connections", label: "Connected apps", icon: PlugIcon },
