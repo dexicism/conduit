@@ -15,3 +15,4 @@ export * from "./integrations";
 export * from "./integrations-env";
 export * from "./outbound";
 export * from "./telegram-poll";
+export * from "./whatsapp";

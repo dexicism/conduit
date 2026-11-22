@@ -99,6 +99,33 @@ export const slackSend: NodeDefinition = {
 // WhatsApp Cloud API
 // ---------------------------------------------------------------------------
 
+export const whatsappTrigger: NodeDefinition = {
+  type: "trigger.whatsapp",
+  version: 1,
+  name: "WhatsApp message",
+  description:
+    "Start when someone messages your WhatsApp Business number. Needs the app secret and verify token on the connection, and Meta needs a public address to send to (see Connections).",
+  category: "trigger",
+  icon: "MessageCircle",
+  color: "amber",
+  app: "whatsapp",
+  keywords: ["whatsapp", "waba", "message", "chat", "incoming", "bot"],
+  inputs: [],
+  outputs: [{ id: "main" }],
+  fields: [credential("whatsapp")],
+  outputSample: {
+    messageId: "wamid.HBgLNjI4MTIzNDU2Nzg5MBUCABIYFjNFQjA",
+    from: "6281234567890",
+    name: "Ana",
+    type: "text",
+    text: "Hi, are you open today?",
+    mediaId: null,
+    timestamp: "2026-01-01T09:00:00.000Z",
+    phoneNumberId: "1234567890",
+    displayPhoneNumber: "15550001111",
+  },
+};
+
 export const whatsappSend: NodeDefinition = {
   ...action,
   type: "app.whatsapp.send",

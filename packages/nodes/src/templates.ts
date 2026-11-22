@@ -55,6 +55,33 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
     ],
   },
   {
+    id: "whatsapp-ai-bot",
+    name: "AI WhatsApp assistant",
+    description: "Replies to WhatsApp messages on your business number with AI and remembers each customer's conversation.",
+    apps: ["whatsapp"],
+    needsAi: true,
+    setup:
+      "WhatsApp only sends messages to a public address, so run a Cloudflare tunnel and set PUBLIC_URL first. Then put the callback URL and verify token from Connections into Meta's webhook settings and subscribe to \"messages\".",
+    steps: [
+      { id: "wa", type: "trigger.whatsapp", label: "WhatsApp message", to: ["ai"] },
+      {
+        id: "ai",
+        type: "ai.agent",
+        label: "Write a reply",
+        parameters: {
+          instructions: SUPPORT_PROMPT,
+          prompt: "${['$input']['text']}",
+          effort: "low",
+          memory: "window",
+          sessionKey: "${['$input']['from']}",
+          memoryTurns: 10,
+        },
+        to: ["reply"],
+      },
+      { id: "reply", type: "app.whatsapp.send", label: "Send the reply", parameters: { to: "${['wa']['from']}", text: "${['$input']['output']}" } },
+    ],
+  },
+  {
     id: "website-chat-assistant",
     name: "Chat assistant for your website",
     description: "A hosted chat page where visitors talk to an AI that remembers each conversation. Change the instructions to teach it about your business.",

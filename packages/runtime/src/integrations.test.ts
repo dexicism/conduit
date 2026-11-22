@@ -5,7 +5,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { MongoClient, ObjectId, type Db } from "mongodb";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { SMTPServer } from "smtp-server";
@@ -18,6 +18,7 @@ import { telegramModeFromEnv } from "./integrations-env";
 import { startTelegramPoller } from "./telegram-poll";
 import { createTriggerService } from "./triggers";
 import { createVault, parseMasterKeys, VaultError } from "./vault";
+import { createWhatsappReceiver, whatsappMessages } from "./whatsapp";
 
 let rs: MongoMemoryReplSet;
 let client: MongoClient;
@@ -934,5 +935,110 @@ describe("Only new items", () => {
     const g = graph([nodes[0]!, { id: "new", type: "flow.onlyNew", parameters: { key: "${['$input']['missing']}" } }]);
     const id = await rt.createExecution({ workspaceId: ws, workflowId: wf, workflowName: "feed", versionId: null, mode: "production", graph: g, triggerNodeId: "t", triggerItems: [{ json: {} }] }, false);
     expect((await rt.processExecution(id)).error?.message).toMatch(/Item 1 has an empty key/);
+  });
+});
+
+describe("WhatsApp incoming messages", () => {
+  const appSecret = "fake-app-secret-123";
+  const sign = (body: string) => `sha256=${createHmac("sha256", appSecret).update(body).digest("hex")}`;
+  const payload = (messages: unknown[], statuses: unknown[] = []) =>
+    JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          id: "WABA",
+          changes: [
+            {
+              field: "messages",
+              value: {
+                messaging_product: "whatsapp",
+                metadata: { display_phone_number: "15550001111", phone_number_id: FAKE.whatsappPhoneId },
+                contacts: [{ wa_id: "6281234567890", profile: { name: "Ana" } }],
+                messages,
+                statuses,
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+  it("verifies the callback, checks signatures, ignores receipts and repeats, and replies", async () => {
+    const ws = new ObjectId();
+    const id = await cred(ws, "whatsapp", { phoneNumberId: FAKE.whatsappPhoneId, accessToken: FAKE.whatsappToken, appSecret, verifyToken: "my-verify-token" });
+    const plain = await cred(ws, "whatsapp", { phoneNumberId: FAKE.whatsappPhoneId, accessToken: FAKE.whatsappToken });
+    const receiver = createWhatsappReceiver(db, integ, rt);
+
+    // Meta's handshake
+    const q = (token: string) => new URLSearchParams({ "hub.mode": "subscribe", "hub.verify_token": token, "hub.challenge": "12345" });
+    expect(await receiver.verify(id, q("my-verify-token"))).toBe("12345");
+    expect(await receiver.verify(id, q("wrong"))).toBeNull();
+    expect(await receiver.verify(plain, q(""))).toBeNull();
+    expect(await receiver.verify("not-an-id", q("my-verify-token"))).toBeNull();
+
+    const check = async (w: ObjectId, c: string) => {
+      const { values } = await integ.resolve(w, c, "whatsapp");
+      if (!values.appSecret || !values.verifyToken) throw new Error("add the app secret and a verify token");
+    };
+    const triggers = createTriggerService(db, client, { whatsapp: { check } });
+    const g = (credential: string) =>
+      graph([
+        { id: "wa", type: "trigger.whatsapp", parameters: { credential }, to: { main: ["reply"] } },
+        { id: "reply", type: "app.whatsapp.send", parameters: { credential, to: "${['wa']['from']}", text: "Hi ${['wa']['name']}, you said: ${['wa']['text']}" } },
+      ]);
+    const wf = new ObjectId();
+    const wf2 = new ObjectId();
+    const wf3 = new ObjectId();
+    await db.collection("workflows").insertMany([
+      { _id: wf, workspaceId: ws, name: "wa bot", revision: 1, draft: g(id), publishedVersionId: null, archivedAt: null },
+      { _id: wf2, workspaceId: ws, name: "second", revision: 1, draft: g(id), publishedVersionId: null, archivedAt: null },
+      { _id: wf3, workspaceId: ws, name: "no secret", revision: 1, draft: g(plain), publishedVersionId: null, archivedAt: null },
+    ]);
+    await expect(triggers.publish(ws, wf3, userId)).rejects.toThrow(/app secret/);
+    const pub = await triggers.publish(ws, wf, userId);
+    expect(pub.triggers).toMatchObject([{ kind: "whatsapp", nodeId: "wa" }]);
+    await expect(triggers.publish(ws, wf2, userId)).rejects.toThrow(/already starts the live workflow "wa bot"/);
+
+    const msg = { from: "6281234567890", id: "wamid.ONE", timestamp: "1767258000", type: "text", text: { body: "are you open?" } };
+    const body = payload([msg]);
+    expect(await receiver.receive(id, body, null)).toEqual({ status: 401 });
+    expect(await receiver.receive(id, body, sign(body + " "))).toEqual({ status: 401 });
+    expect(await receiver.receive(id, body, sign(body))).toEqual({ status: 200, started: 1 });
+    // Meta retries: the same message id doesn't start a second run.
+    expect(await receiver.receive(id, body, sign(body))).toEqual({ status: 200, started: 0 });
+    // Delivery receipts only: nothing to do.
+    const receipts = payload([], [{ id: "wamid.X", status: "delivered", recipient_id: "6281234567890" }]);
+    expect(await receiver.receive(id, receipts, sign(receipts))).toEqual({ status: 200, started: 0 });
+
+    const exec = await rt.collections.executions.findOne({ workflowId: wf });
+    expect(exec?.mode).toBe("production");
+    await rt.processExecution(exec!._id);
+    const steps = await rt.collections.steps.find({ executionId: exec!._id }).toArray();
+    expect(steps.find((s) => s.nodeId === "wa")?.output.main?.[0]?.json).toMatchObject({ from: "6281234567890", name: "Ana", text: "are you open?", type: "text" });
+    expect(steps.find((s) => s.nodeId === "reply")?.status).toBe("success");
+    const sent = fake.calls.filter((c) => c.host === "graph.facebook.com" && c.method === "POST");
+    expect(sent.map((c) => c.body)).toMatchObject([{ to: "6281234567890", text: { body: "Hi Ana, you said: are you open?" } }]);
+
+    // Unpublished: messages are accepted but start nothing.
+    await triggers.unpublish(ws, wf);
+    const later = payload([{ ...msg, id: "wamid.TWO" }]);
+    expect(await receiver.receive(id, later, sign(later))).toEqual({ status: 200, started: 0 });
+  });
+
+  it("reads buttons, list picks, captions and locations as text", () => {
+    const items = whatsappMessages(
+      JSON.parse(
+        payload([
+          { from: "1", id: "a", type: "interactive", interactive: { type: "button_reply", button_reply: { id: "yes", title: "Yes please" } } },
+          { from: "1", id: "b", type: "interactive", interactive: { type: "list_reply", list_reply: { id: "m", title: "Medium" } } },
+          { from: "1", id: "c", type: "image", image: { id: "MEDIA1", caption: "my receipt" } },
+          { from: "1", id: "d", type: "location", location: { name: "Cafe", address: "Main St 1" } },
+          { from: "1", id: "e", type: "button", button: { text: "Stop" } },
+        ]),
+      ),
+    );
+    expect(items.map((i) => i.text)).toEqual(["Yes please", "Medium", "my receipt", "Cafe, Main St 1", "Stop"]);
+    expect(items[2]!.mediaId).toBe("MEDIA1");
+    expect(whatsappMessages({ nonsense: true })).toEqual([]);
   });
 });

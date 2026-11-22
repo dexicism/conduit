@@ -21,25 +21,29 @@ export interface OAuthDoneMessage {
 
 interface Props {
   app: AppInfo | null;
+  /** Set to update the keys of a saved account instead of adding a new one. */
+  editing?: CredentialView | null;
   onOpenChange: (open: boolean) => void;
   onConnected: (cred: Pick<CredentialView, "id" | "app" | "label">) => void;
 }
 
-export function ConnectDialog({ app, onOpenChange, onConnected }: Props) {
+export function ConnectDialog({ app, editing, onOpenChange, onConnected }: Props) {
   return (
     <Dialog open={app !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">{app && <ConnectForm app={app} onDone={onConnected} onCancel={() => onOpenChange(false)} />}</DialogContent>
+      <DialogContent className="sm:max-w-md">
+        {app && <ConnectForm key={editing?.id ?? app.id} app={app} editing={editing ?? null} onDone={onConnected} onCancel={() => onOpenChange(false)} />}
+      </DialogContent>
     </Dialog>
   );
 }
 
-function ConnectForm({ app, onDone, onCancel }: { app: AppInfo; onDone: Props["onConnected"]; onCancel: () => void }) {
+function ConnectForm({ app, editing, onDone, onCancel }: { app: AppInfo; editing: CredentialView | null; onDone: Props["onConnected"]; onCancel: () => void }) {
   const qc = useQueryClient();
   const ids = { label: useId(), err: useId() };
   const fields = app.auth.kind === "fields" ? app.auth.fields : [];
-  const [label, setLabel] = useState(app.name);
+  const [label, setLabel] = useState(editing?.label ?? app.name);
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(fields.map((f) => [f.name, f.default !== undefined ? String(f.default) : ""])),
+    Object.fromEntries(fields.map((f) => [f.name, !editing && f.default !== undefined ? String(f.default) : ""])),
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -77,12 +81,14 @@ function ConnectForm({ app, onDone, onCancel }: { app: AppInfo; onDone: Props["o
       window.open(`/api/credentials/oauth/${app.id}/start?label=${encodeURIComponent(label.trim())}`, "_blank");
       return;
     }
-    const missing = Object.fromEntries(fields.filter((f) => f.required && !values[f.name]?.trim()).map((f) => [f.name, `${f.label} is required`]));
+    const missing = editing
+      ? {}
+      : Object.fromEntries(fields.filter((f) => f.required && !values[f.name]?.trim()).map((f) => [f.name, `${f.label} is required`]));
     setErrors(missing);
     if (Object.keys(missing).length) return;
     setPending(true);
     try {
-      const cred = await api.createCredential({ app: app.id, label: label.trim(), values });
+      const cred = editing ? await api.updateCredentialKeys(editing.id, values) : await api.createCredential({ app: app.id, label: label.trim(), values });
       await qc.invalidateQueries({ queryKey: ["credentials"] });
       onDone(cred);
     } catch (err) {
@@ -98,16 +104,16 @@ function ConnectForm({ app, onDone, onCancel }: { app: AppInfo; onDone: Props["o
   return (
     <form onSubmit={submit} noValidate className="grid gap-4" aria-label={`Connect ${app.name}`}>
       <DialogHeader>
-        <DialogTitle>Connect {app.name}</DialogTitle>
-        <DialogDescription>{app.help ?? app.description}</DialogDescription>
+        <DialogTitle>{editing ? `Update ${editing.label}` : `Connect ${app.name}`}</DialogTitle>
+        <DialogDescription>{editing ? "Fill in only what you want to change. Empty fields keep what's saved." : (app.help ?? app.description)}</DialogDescription>
       </DialogHeader>
-      <div className="grid gap-1.5">
+      <div className={editing ? "hidden" : "grid gap-1.5"}>
         <Label htmlFor={ids.label}>Account name</Label>
         <Input id={ids.label} value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} aria-invalid={errors._label ? true : undefined} />
         {errors._label && <p className="text-xs text-destructive">{errors._label}</p>}
       </div>
       {fields.map((f) => (
-        <FieldInput key={f.name} field={f} value={values[f.name] ?? ""} error={errors[f.name]} onChange={(v) => setValues((s) => ({ ...s, [f.name]: v }))} />
+        <FieldInput key={f.name} field={editing ? { ...f, required: false, placeholder: "Leave empty to keep it" } : f} value={values[f.name] ?? ""} error={errors[f.name]} onChange={(v) => setValues((s) => ({ ...s, [f.name]: v }))} />
       ))}
       {app.auth.kind === "oauth2" && (
         <p className="text-sm text-muted-foreground">
@@ -132,6 +138,8 @@ function ConnectForm({ app, onDone, onCancel }: { app: AppInfo; onDone: Props["o
             </>
           ) : pending ? (
             "Checking…"
+          ) : editing ? (
+            "Save"
           ) : (
             "Connect"
           )}

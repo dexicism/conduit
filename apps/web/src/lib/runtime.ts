@@ -1,5 +1,5 @@
 import "server-only";
-import { createExecutionQueries, createRuntime, createTriggerService, integrationsFromEnv, llmFromEnv, telegramModeFromEnv, type Integrations, type LlmProviderName } from "@conduit/runtime";
+import { createExecutionQueries, createRuntime, createTriggerService, createWhatsappReceiver, integrationsFromEnv, llmFromEnv, telegramModeFromEnv, type Integrations, type LlmProviderName } from "@conduit/runtime";
 import type { LlmService } from "@conduit/engine";
 import { db, mongoClient } from "./db";
 import { env } from "./env";
@@ -12,6 +12,7 @@ const g = globalThis as unknown as {
     executions: ReturnType<typeof createExecutionQueries>;
     ai: { provider: LlmProviderName; llm?: LlmService };
     integrations: Integrations;
+    whatsapp: ReturnType<typeof createWhatsappReceiver>;
   };
 };
 
@@ -21,8 +22,10 @@ export function rt() {
     const ai = llmFromEnv();
     const options = runtimeOptionsFromEnv();
     const { integrations } = integrationsFromEnv(db, { allowPrivateNetwork: Boolean(options.allowPrivateNetwork) });
+    const runtime = createRuntime(db, options, { llm: ai.llm }, { integrations });
     g.__conduitRuntime = {
-      runtime: createRuntime(db, options, { llm: ai.llm }, { integrations }),
+      runtime,
+      whatsapp: createWhatsappReceiver(db, integrations, runtime),
       triggers: createTriggerService(db, mongoClient, {
         telegram:
           telegramModeFromEnv() === "polling"
@@ -37,6 +40,14 @@ export function rt() {
                 register: (ws, cred, url, secret) => integrations.telegram.setWebhook(ws, cred, url, secret),
                 unregister: (ws, cred) => integrations.telegram.deleteWebhook(ws, cred),
               },
+        whatsapp: {
+          async check(ws, cred) {
+            const { values } = await integrations.resolve(ws, cred, "whatsapp");
+            if (!values.appSecret || !values.verifyToken) {
+              throw new Error("To receive WhatsApp messages, add the app secret and a verify token to this WhatsApp connection (Connections > Reconnect)");
+            }
+          },
+        },
       }),
       executions: createExecutionQueries(db),
       ai,

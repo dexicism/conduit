@@ -3,6 +3,7 @@ import { toCredentialView } from "@conduit/runtime";
 import { z } from "zod";
 import { ApiError, json, parse, readJson, route, searchParamsObject } from "@/lib/api";
 import { appCall, appCatalog, requireAvailableApp } from "@/lib/connections";
+import { env } from "@/lib/env";
 import { rt } from "@/lib/runtime";
 import { requireApiContext } from "@/lib/session";
 import { canEdit } from "@/lib/workspaces";
@@ -12,7 +13,7 @@ export const GET = route(async (req) => {
   const { workspace } = await requireApiContext(req);
   const { app } = searchParamsObject(req);
   const credentials = await rt().integrations.list(workspace.workspaceId, app || undefined);
-  return json({ credentials, apps: appCatalog() });
+  return json({ credentials, apps: appCatalog(), publicUrl: env.PUBLIC_URL });
 });
 
 const createSchema = z.object({

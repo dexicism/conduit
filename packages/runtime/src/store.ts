@@ -66,7 +66,7 @@ export interface TriggerDoc {
   workflowId: ObjectId;
   versionId: ObjectId | null;
   nodeId: string;
-  kind: "webhook" | "webhook-test" | "schedule" | "telegram" | "form" | "chat";
+  kind: "webhook" | "webhook-test" | "schedule" | "telegram" | "whatsapp" | "form" | "chat";
   method?: string;
   path?: string;
   nextRunAt?: Date;
@@ -75,7 +75,7 @@ export interface TriggerDoc {
   /** Test listener: execution created by the first request. */
   executionId?: ObjectId | null;
   createdBy?: string;
-  /** Telegram: the bot's account and the secret Telegram sends back on every update. */
+  /** Telegram and WhatsApp: the connected account. Telegram also gets and the secret Telegram sends back on every update. */
   credentialId?: string;
   secretToken?: string;
   /** Telegram polling mode: the next update id to ask for. */

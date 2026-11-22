@@ -42,8 +42,8 @@ export function publishIssues(graph: WorkflowGraph): Array<{ nodeId?: string; me
   return issues;
 }
 
-const LIVE_TYPES = ["trigger.webhook", "trigger.schedule", "trigger.telegram", "trigger.form", "trigger.chat"];
-const LIVE_KINDS: TriggerDoc["kind"][] = ["webhook", "schedule", "telegram", "form", "chat"];
+const LIVE_TYPES = ["trigger.webhook", "trigger.schedule", "trigger.telegram", "trigger.whatsapp", "trigger.form", "trigger.chat"];
+const LIVE_KINDS: TriggerDoc["kind"][] = ["webhook", "schedule", "telegram", "whatsapp", "form", "chat"];
 
 function liveTriggers(graph: WorkflowGraph) {
   return graph.nodes.filter((n) => !n.disabled && LIVE_TYPES.includes(n.type));
@@ -56,6 +56,8 @@ export interface TriggerHooks {
     register(workspaceId: ObjectId, credentialId: string, url: string, secretToken: string): Promise<void>;
     unregister(workspaceId: ObjectId, credentialId: string): Promise<void>;
   };
+  /** Throws if a WhatsApp connection is missing what incoming messages need (app secret, verify token). */
+  whatsapp?: { check(workspaceId: ObjectId, credentialId: string): Promise<void> };
 }
 
 export function createTriggerService(db: Db, client: MongoClient, hooks: TriggerHooks = {}) {
@@ -110,6 +112,7 @@ export function createTriggerService(db: Db, client: MongoClient, hooks: Trigger
           credentialId: String(n.parameters.credential ?? ""),
         };
       }
+      if (n.type === "trigger.whatsapp") return { ...base, kind: "whatsapp", credentialId: String(n.parameters.credential ?? "") };
       return { ...base, kind: "schedule", nextRunAt: nextScheduleRun(n.parameters, now) };
     });
 
@@ -131,6 +134,25 @@ export function createTriggerService(db: Db, client: MongoClient, hooks: Trigger
         } catch (err) {
           const message = (err as Error).message;
           throw new PublishError(`Couldn't connect the Telegram bot: ${message}`, [{ nodeId: b.nodeId, message }]);
+        }
+      }
+    }
+    // Same for WhatsApp: one number, one live workflow.
+    const numbers = docs.filter((d) => d.kind === "whatsapp");
+    if (numbers.length) {
+      const ids = numbers.map((b) => b.credentialId!);
+      if (new Set(ids).size !== ids.length) throw new PublishError("Two WhatsApp triggers use the same number", [], true);
+      const taken = await c.triggers.findOne({ kind: "whatsapp", credentialId: { $in: ids }, workflowId: { $ne: workflowId } });
+      if (taken) {
+        const other = await c.workflows.findOne({ _id: taken.workflowId }, { projection: { name: 1 } });
+        throw new PublishError(`This WhatsApp number already starts the live workflow "${String(other?.name ?? "another workflow")}". Unpublish it first.`, [], true);
+      }
+      for (const b of numbers) {
+        try {
+          await hooks.whatsapp?.check(workspaceId, b.credentialId!);
+        } catch (err) {
+          const message = (err as Error).message;
+          throw new PublishError(message, [{ nodeId: b.nodeId, message }]);
         }
       }
     }

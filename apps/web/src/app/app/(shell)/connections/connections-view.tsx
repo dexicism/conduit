@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleHelp, Loader2Icon, PencilIcon, PlugIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
+import { CircleHelp, CopyIcon, InboxIcon, KeyRoundIcon, Loader2Icon, PencilIcon, PlugIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ConnectDialog, type OAuthDoneMessage } from "@/components/connections/connect-dialog";
@@ -39,6 +39,8 @@ export function ConnectionsView() {
   const q = useQuery({ queryKey: ["credentials", "all"], queryFn: () => api.listCredentials() });
   const [connecting, setConnecting] = useState<AppInfo | null>(null);
   const [renaming, setRenaming] = useState<CredentialView | null>(null);
+  const [editingKeys, setEditingKeys] = useState<CredentialView | null>(null);
+  const [whatsappSetup, setWhatsappSetup] = useState<CredentialView | null>(null);
   const [removing, setRemoving] = useState<{ cred: CredentialView; inUse?: string } | null>(null);
 
   const [reconnecting, setReconnecting] = useState<string | null>(null);
@@ -154,6 +156,16 @@ export function ConnectionsView() {
                         Reconnect
                       </Button>
                     )}
+                    {c.app === "whatsapp" && (
+                      <Button variant="outline" size="sm" onClick={() => setWhatsappSetup(c)}>
+                        <InboxIcon data-icon="inline-start" /> Receive messages
+                      </Button>
+                    )}
+                    {app?.auth.kind === "fields" && (
+                      <Button variant="ghost" size="icon-sm" aria-label={`Update keys for ${c.label}`} title="Update keys" onClick={() => setEditingKeys(c)}>
+                        <KeyRoundIcon />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon-sm" aria-label={`Check ${c.label}`} disabled={test.isPending} onClick={() => test.mutate(c.id)}>
                       {test.isPending && test.variables === c.id ? <Loader2Icon className="animate-spin" /> : <RefreshCwIcon />}
                     </Button>
@@ -202,6 +214,16 @@ export function ConnectionsView() {
           toast.success(`${c.label} connected`);
         }}
       />
+      <ConnectDialog
+        app={editingKeys ? (byId.get(editingKeys.app) ?? null) : null}
+        editing={editingKeys}
+        onOpenChange={(o) => !o && setEditingKeys(null)}
+        onConnected={(c) => {
+          setEditingKeys(null);
+          toast.success(`${c.label} updated`);
+        }}
+      />
+      <WhatsappSetupDialog cred={whatsappSetup} publicUrl={q.data?.publicUrl ?? ""} onClose={() => setWhatsappSetup(null)} />
       <RenameDialog cred={renaming} onClose={() => setRenaming(null)} />
       <AlertDialog open={removing !== null} onOpenChange={(o) => !o && !remove.isPending && setRemoving(null)}>
         <AlertDialogContent>
@@ -225,6 +247,61 @@ export function ConnectionsView() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function CopyRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-1.5">
+        <code className="min-w-0 flex-1 truncate rounded-md border bg-muted/50 px-2 py-1.5 text-xs" title={value}>
+          {value}
+        </code>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          aria-label={`Copy ${label.toLowerCase()}`}
+          onClick={() => void navigator.clipboard.writeText(value).then(() => toast.success("Copied"))}
+        >
+          <CopyIcon />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** What to paste into Meta so messages to the number start workflows. */
+function WhatsappSetupDialog({ cred, publicUrl, onClose }: { cred: CredentialView | null; publicUrl: string; onClose: () => void }) {
+  const url = cred ? `${publicUrl}/hook/whatsapp/${cred.id}` : "";
+  const local = /\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(publicUrl);
+  return (
+    <Dialog open={cred !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Receive WhatsApp messages</DialogTitle>
+          <DialogDescription>Meta sends each new message to this address, and a workflow with a WhatsApp trigger picks it up.</DialogDescription>
+        </DialogHeader>
+        {local && (
+          <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            This server's address is {publicUrl}, which Meta can't reach. Run <code>cloudflared tunnel --url http://localhost:3000</code>, put the
+            address it prints in <code>PUBLIC_URL</code>, restart Conduit and open this again.
+          </p>
+        )}
+        <CopyRow label="Callback URL" value={url} />
+        <ol className="grid list-decimal gap-1.5 pl-5 text-sm text-muted-foreground">
+          <li>Update this connection's keys with your App secret (Meta app: App settings, Basic) and a verify token you make up.</li>
+          <li>In Meta for Developers, open WhatsApp, Configuration. Paste the callback URL and the same verify token, then Verify and save.</li>
+          <li>Under Webhook fields, subscribe to <strong>messages</strong>.</li>
+          <li>Publish a workflow that starts with "WhatsApp message", or use the "AI WhatsApp assistant" template.</li>
+        </ol>
+        <p className="text-xs text-muted-foreground">Meta's free test number can message up to 5 numbers you verify. Replies within 24 hours of a customer's message need no template.</p>
+        <DialogFooter>
+          <Button onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -60,12 +60,14 @@ export const APP_DEFINITIONS: readonly AppDefinition[] = [
     name: "WhatsApp Business",
     description: "Send WhatsApp messages from your business number (WhatsApp Cloud API).",
     icon: "MessageCircle",
-    help: "In Meta for Developers, open your WhatsApp app: copy the Phone number ID, and create a System User access token with whatsapp_business_messaging permission.",
+    help: "In Meta for Developers, open your app's WhatsApp > API Setup page: copy the Phone number ID and an access token (the temporary one lasts a day; a System User token with whatsapp_business_messaging doesn't expire). To receive messages too, add the App secret (App settings > Basic) and make up a verify token, then follow the steps shown on the connection.",
     auth: {
       kind: "fields",
       fields: [
         { name: "phoneNumberId", label: "Phone number ID", kind: "string", required: true, placeholder: "1234567890" },
         { name: "accessToken", label: "Access token", kind: "secret", required: true, placeholder: "EAAG…" },
+        { name: "appSecret", label: "App secret (to receive messages)", kind: "secret", placeholder: "Optional" },
+        { name: "verifyToken", label: "Verify token (to receive messages)", kind: "secret", placeholder: "Any long random text" },
       ],
     },
   },

@@ -81,7 +81,7 @@ export const api = {
   cancelExecution: (id: string) => request<ExecutionSummary>(`/api/executions/${id}/cancel`, { method: "POST" }),
   retryExecution: (id: string) => request<{ executionId: string }>(`/api/executions/${id}/retry`, { method: "POST" }),
   listCredentials: (app?: string) =>
-    request<{ credentials: CredentialView[]; apps: AppInfo[] }>(`/api/credentials${app ? `?app=${encodeURIComponent(app)}` : ""}`),
+    request<{ credentials: CredentialView[]; apps: AppInfo[]; publicUrl: string }>(`/api/credentials${app ? `?app=${encodeURIComponent(app)}` : ""}`),
   getCredential: (id: string) =>
     request<CredentialView & { usage: { workflows: Array<{ id: string; name: string }>; published: Array<{ id: string; name: string }> } }>(
       `/api/credentials/${id}`,
@@ -89,6 +89,8 @@ export const api = {
   createCredential: (input: { app: string; label: string; values: Record<string, string> }) =>
     request<CredentialView>("/api/credentials", { method: "POST", body: JSON.stringify(input) }),
   renameCredential: (id: string, label: string) => request<CredentialView>(`/api/credentials/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
+  updateCredentialKeys: (id: string, values: Record<string, string>) =>
+    request<CredentialView>(`/api/credentials/${id}`, { method: "PUT", body: JSON.stringify({ values }) }),
   deleteCredential: (id: string, force = false) => request<void>(`/api/credentials/${id}${force ? "?force=1" : ""}`, { method: "DELETE" }),
   testCredential: (id: string) => request<CredentialView>(`/api/credentials/${id}/test`, { method: "POST" }),
   fieldOptions: (input: { source: string; credentialId: string; params: Record<string, unknown> }) =>

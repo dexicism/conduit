@@ -5,7 +5,7 @@ import { cryptoNode, dateNode, jsonNode, listNode, mathNode, textNode } from "./
 import { errorTrigger, manualTrigger, scheduleTrigger, subworkflowTrigger, webhookTrigger } from "./definitions/triggers";
 import { agentNode, classifyNode, extractNode, moderateNode, sentimentNode } from "./definitions/ai";
 import { appActionTool, calculatorTool, codeTool, httpTool, subAgentTool, thinkTool, workflowTool } from "./definitions/tools";
-import { APP_ACTION_DEFINITIONS, telegramTrigger } from "./definitions/apps";
+import { APP_ACTION_DEFINITIONS, telegramTrigger, whatsappTrigger } from "./definitions/apps";
 import { chatTrigger, formTrigger } from "./definitions/triggers";
 import { AGENT_HANDLE, TOOL_HANDLE } from "./types";
 import type {
@@ -29,6 +29,7 @@ export const NODE_DEFINITIONS: readonly NodeDefinition[] = [
   subworkflowTrigger,
   errorTrigger,
   telegramTrigger,
+  whatsappTrigger,
   formTrigger,
   chatTrigger,
   agentNode,
