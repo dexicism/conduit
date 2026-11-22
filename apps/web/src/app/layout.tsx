@@ -7,7 +7,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: { default: "Conduit — AI workflow automation", template: "%s · Conduit" },
+  title: { default: "Conduit", template: "%s · Conduit" },
   description: "Build workflows that connect your apps and put AI to work, visually or by describing them in chat.",
 };
 

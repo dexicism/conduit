@@ -9,30 +9,30 @@ import { cn } from "@/lib/utils";
 const features = [
   {
     icon: GitBranchIcon,
-    title: "A canvas for real logic",
-    body: "Branch, loop, filter and merge. Map any field from an earlier step into the next one.",
+    title: "Proper logic, not just A to B",
+    body: "Branch, loop, filter and merge. Grab any field from an earlier step and use it later.",
   },
   {
     icon: BotIcon,
-    title: "AI as a step, not a sidecar",
-    body: "Drop in agents that reason, classify and generate, with the tools you hand them.",
+    title: "AI is just another step",
+    body: "Classify a message, pull data out of an email, or let an agent use your apps. Runs on a local model, so it's free.",
   },
   {
     icon: MessageSquareTextIcon,
-    title: "Describe it, then refine it",
-    body: "Tell the builder what you need. It drafts the workflow on your canvas for you to review.",
+    title: "Or just describe it",
+    body: "Type what you want and the builder sketches the workflow on the canvas. Then you fix it up.",
   },
   {
     icon: WebhookIcon,
-    title: "Triggers that just work",
-    body: "Webhooks, schedules and app events. Test freely in the editor, publish when ready.",
+    title: "Lots of ways to kick things off",
+    body: "Webhooks, schedules, forms, a chat page, Telegram messages. Test in the editor, publish when it works.",
   },
 ];
 
 export default async function HomePage() {
   const session = await getSession();
   const ctaHref = session ? "/app/workflows" : "/login";
-  const ctaLabel = session ? "Open your workflows" : "Start building";
+  const ctaLabel = session ? "Open your workflows" : "Get started";
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -52,16 +52,16 @@ export default async function HomePage() {
           <div className="relative mx-auto max-w-3xl px-4 pt-20 pb-24 text-center sm:px-6 sm:pt-28">
             <p className="mb-5 inline-flex items-center gap-2 rounded-full border bg-card/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
               <span className="size-1.5 rounded-full bg-signal" />
-              Workflow automation with AI built in
+              Free, self-hosted, runs on your laptop
             </p>
             <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
-              Wire your apps together.
+              Hook your apps together.
               <br />
-              <span className="text-primary">Let the busywork run itself.</span>
+              <span className="text-primary">Stop doing the boring stuff by hand.</span>
             </h1>
             <p className="mx-auto mt-6 max-w-xl text-base text-muted-foreground text-pretty sm:text-lg">
-              Conduit connects the tools you already use and adds AI where it helps. Build visually, or describe the
-              job and refine the draft.
+              Drag a few steps onto a canvas, connect Telegram, Gmail or Sheets, add some AI if you want, and let it run.
+              No subscriptions, no per-task pricing.
             </p>
             <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
               <Link href={ctaHref} className={cn(buttonVariants({ size: "lg" }), "h-10 px-4")}>
@@ -86,7 +86,7 @@ export default async function HomePage() {
       <footer className="border-t">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-6 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <span>© {new Date().getFullYear()} Conduit</span>
-          <span>Built for teams who would rather not copy and paste.</span>
+          <span>Made because I got tired of paying for Zapier.</span>
         </div>
       </footer>
     </div>

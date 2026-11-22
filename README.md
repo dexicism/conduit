@@ -1,97 +1,102 @@
 # Conduit
 
-A workflow automation platform I built to run on my own laptop for free. Drag steps onto a canvas, wire them up, hit publish. It handles the boring glue work: a Telegram bot that answers with AI, form answers that land in a Google Sheet, a chat page for a website, emails, calendar invites, scheduled jobs.
+My own workflow automation tool, kind of like Zapier or n8n, but it runs on my laptop and costs nothing.
 
-What's in it:
+You drag steps onto a canvas, connect them, and hit publish. Some things I use it for:
 
-- **Visual editor:** 30-ish step types, a config panel generated from each step's schema, data references with a variable picker, undo/redo, copy/paste, sticky notes, auto-layout, auto-save with conflict handling.
-- **Execution engine:** test runs with live output, webhook / schedule / manual / form / chat / error / sub-workflow triggers, publishing, run history, sandboxed Code steps (isolated-vm), SSRF-safe HTTP steps.
-- **AI:** an Agent with tools and memory, Classify, Sentiment, Moderate and Extract steps, and a chat Builder that drafts workflows on the canvas. Runs on a free local model through Ollama, or on Claude if you have a key.
-- **Apps:** Telegram, Gmail, Google Sheets, Google Calendar, Google Drive, Slack, WhatsApp Business, PostgreSQL and SMTP. Every app action also works as an agent tool. Accounts are stored encrypted.
-- **Teams:** workspaces with invites and roles (owner, admin, editor, viewer). No plans, no credits, no limits: everything is free.
-- **Platform:** API keys and a public REST API (`/api/v1`), signed outgoing webhooks, an MCP server with OAuth 2.1 so AI assistants can read and edit workflows, two-step sign-in.
+- a Telegram bot that answers messages with AI
+- form submissions that land in a Google Sheet
+- a little chat page that talks to a workflow
+- scheduled jobs that send emails or create calendar events
 
-## Quick start on Windows (one click)
+The AI runs locally through [Ollama](https://ollama.com), so there's no API bill. There are no plans, no credits and no limits either. Everything's just free.
 
-Double-click **Start Conduit** (on the desktop, or `Start Conduit.cmd` in this folder). It starts the local AI (Ollama), the database and the app, loads the AI model, and opens http://localhost:3000. The first start takes about a minute. Two minimized "Conduit" windows stay open while it runs.
+## What's in it
 
-Double-click **Stop Conduit** to stop the app and the database cleanly. Ollama keeps running in the tray.
+- **Editor:** 40-odd kinds of steps, a settings panel for each one, a picker for pulling data from earlier steps, undo/redo, copy/paste, sticky notes, auto-layout. It auto-saves and won't let two tabs overwrite each other.
+- **Triggers:** manual, webhook, schedule, form, chat page, Telegram, "called by another workflow", and "on error".
+- **Logic:** if/switch, loops, filter, merge, set fields, text/math/date/JSON helpers, HTTP requests, and a JavaScript step that runs in a sandbox.
+- **AI:** an agent that can use tools and remember a conversation, plus classify, sentiment, moderation and "pull data out of this text" steps. There's also a chat builder: describe a workflow and it drafts it on the canvas.
+- **Apps:** Telegram, Gmail, Google Sheets, Calendar and Drive, Slack, WhatsApp Business, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
+- **The rest:** run history with every step's input and output, teams with roles, API keys and a REST API, outgoing webhooks, an MCP server so AI assistants can read and edit workflows, and two-step sign-in.
 
-Telegram bots, schedules and other workflows run only while Conduit is running.
+## Running it (Windows, the easy way)
 
-## Requirements
+Double-click **Start Conduit** (`Start Conduit.cmd` in this folder). It starts Ollama, the database and the app, then opens http://localhost:3000. The first start takes about a minute. Two minimized "Conduit" windows stay open while it's running.
 
-- Node.js 22.12+ (24.22+ recommended)
-- No Docker needed. The dev database runs the official `mongod` binary, which downloads automatically on first run.
+**Stop Conduit** shuts it all down. Bots and schedules only run while it's up.
 
-## Run locally
+## Running it by hand
 
-From the repo root, run each command in its own terminal:
+You need Node 22.12 or newer. No Docker: the dev database downloads a real `mongod` the first time.
 
 ```bash
 npm install
-npm run db        # MongoDB replica set on 127.0.0.1:27018 (keep running)
-npm run dev       # http://localhost:3000
+npm run db     # MongoDB on 127.0.0.1:27018, leave it running
+npm run dev    # http://localhost:3000
 ```
 
-On first run, create `apps/web/.env.local` from [apps/web/.env.example](apps/web/.env.example). Only `BETTER_AUTH_SECRET` is required.
+Copy `apps/web/.env.example` to `apps/web/.env.local` first. The only thing you have to set is `BETTER_AUTH_SECRET`.
 
-**Signing in without an email provider.** If `RESEND_API_KEY` and `SMTP_URL` are both unset, sign-in codes are written to a local outbox. Read it at <http://localhost:3000/dev/outbox>. The login screen links to it. This mode is refused in production.
+Sign-in is by email code. If you haven't set up email (`RESEND_API_KEY` or `SMTP_URL`), the codes show up at http://localhost:3000/dev/outbox instead.
 
-**Workflow runs.**
+## AI
 
-- **In development:** the execution worker starts inside `npm run dev`, so nothing else needs to run.
-- **In production:** run it separately with `MONGODB_URI=... npm start -w worker`, and as many copies as you need. Set `CONDUIT_WORKER=off` on the web servers.
-- **Private addresses:** HTTP steps can't reach private or internal addresses unless `HTTP_ALLOW_PRIVATE_NETWORK=1`.
+Install Ollama, run `ollama pull qwen3:8b`, and put `AI_PROVIDER=ollama` in `.env.local`. Every AI step and the builder will use that model.
 
-**AI.** Two real providers. Set one in `apps/web/.env.local`, and the same settings wherever the worker runs.
+A few things I found:
 
-- **Free, on your own computer (Ollama):** install [Ollama](https://ollama.com), run `ollama pull qwen3:8b`, and set `AI_PROVIDER=ollama`.
-  - Every AI step and the Builder use that one model (`OLLAMA_MODEL`), whatever model the step names.
-  - It needs about 8 GB of free memory. It's slower than Claude and makes more mistakes building workflows.
-  - Other models that handle tools: `llama3.1:8b`, `qwen3:14b` (better, needs about 16 GB).
-  - **Speed and quality (measured on an RTX 3050 laptop GPU with 4 GB, `qwen3:8b`):** a simple answer or tool call takes 4–8 s after the model loads (about 25 s the first time). Building a 3-step workflow with the AI Builder worked. A 4-step request took about 3.5 minutes and added only the first step, though the model's reply claimed all four. The Builder panel's change label lists the steps that were really added, so check it.
-  - **Ollama crashes with a "CUDA error" on some NVIDIA laptop GPUs:** run `setx OLLAMA_LLM_LIBRARY cuda_v12`, quit Ollama from the system tray, and open it again from the Start menu.
-  - **Check it yourself:** `npx tsx scripts/try-ollama.mts` (answers, tools, JSON output) and `npx tsx scripts/try-builder.mts "your request"` (the Builder).
-- **Claude (paid per use):** set `ANTHROPIC_API_KEY`.
-- **Without either:** AI steps and the Builder are hidden.
-- **Local trial without a key:** `AI_PROVIDER=fake` turns on a rule-based test model, with no real intelligence. It's refused in production.
-- **Model choice:** each AI step picks Claude Opus 5.5 (default), Sonnet 5.5 or Haiku 5.5.
-- **Refusals:** on Opus and Sonnet, a request Claude declines is automatically retried on Anthropic's fallback model.
+- It needs around 8 GB of free memory. On my laptop (RTX 3050, 4 GB) a reply takes 4 to 8 seconds once the model is loaded.
+- It's fine for single AI steps. The builder gets shaky with bigger requests: a 4-step ask once took 3.5 minutes and only added the first step. The builder panel shows which steps it actually added, so check that.
+- If Ollama crashes with a "CUDA error" on an NVIDIA laptop GPU, run `setx OLLAMA_LLM_LIBRARY cuda_v12` and restart Ollama. That one took me a while.
+- `npx tsx scripts/try-ollama.mts` checks that answers, tool calls and JSON output all work.
 
-**Telegram on your own PC (free, no tunnel).** When the app's address is localhost, Telegram bots use polling: the worker asks Telegram for new messages every few seconds, so your PC doesn't need a public address. Publishing a workflow with a Telegram trigger removes any old webhook from the bot and skips messages sent before it went live. Set `TELEGRAM_MODE=webhook` or `TELEGRAM_MODE=polling` to choose. With several workers in polling mode, set `TELEGRAM_POLL=0` on all but one.
+If you have a Claude API key, set `ANTHROPIC_API_KEY` instead. It's a lot smarter, but you pay per use. `AI_PROVIDER=fake` gives you a dumb rule-based model for poking around without either.
 
-**Incoming hooks on your own PC (free).** Webhook and form triggers called from outside, and Telegram in webhook mode, need an address the internet can reach. Install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared`) and run `cloudflared tunnel --url http://localhost:3000`. It prints an `https://….trycloudflare.com` address. Put it in `apps/web/.env.local` as `PUBLIC_URL=…` and restart the app.
-- The address changes every time the tunnel restarts. In webhook mode, publish your Telegram workflows again after a change so Telegram learns the new address.
-- While the tunnel runs, anyone with the address can reach your app's pages, and the sign-in page still protects your account. Close the tunnel when you're not using it.
+## Connecting apps
 
-**Connected apps.** Saved accounts are encrypted with `CONDUIT_ENCRYPTION_KEY`. It's required in production and must be the same on the web app and every worker. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Development creates one in `.data/encryption.key`.
+Saved accounts are encrypted. In dev the key is created for you in `.data/encryption.key`. In production, set `CONDUIT_ENCRYPTION_KEY` (32 random bytes, base64) and use the same one everywhere the app runs.
 
-- **Google (Gmail, Sheets, Calendar, Drive):** set `CONNECT_GOOGLE_CLIENT_ID` and `CONNECT_GOOGLE_CLIENT_SECRET`, and add `{BETTER_AUTH_URL}/api/credentials/oauth/callback` as a redirect URI. Enable the Gmail, Sheets, Calendar and Drive APIs in the Google Cloud project. Without these, Google steps are hidden.
-- **Telegram triggers:** in webhook mode (the default when `PUBLIC_URL` isn't localhost), Telegram must be able to reach `PUBLIC_URL` over public HTTPS. Polling mode needs no public address.
-- **Databases and SMTP:** private and internal addresses are blocked unless `HTTP_ALLOW_PRIVATE_NETWORK=1`.
+**Telegram:** make a bot with @BotFather and paste its token under Connections. On your own PC the app polls Telegram for new messages, so you don't need a public address. `scripts/telegram-ai-bot.mts` sets up an "AI replies to messages" bot in one go.
 
-**Google and GitHub sign-in.** Set the client ID and secret for either provider in `.env.local` and its button appears. Without them the button is hidden, so it is never a dead control.
+**Google (Gmail, Sheets, Calendar, Drive):**
+
+1. Make a project in Google Cloud and enable the Gmail, Sheets, Calendar and Drive APIs.
+2. Set up the OAuth consent screen. Leave it in "Testing" and add yourself as a test user.
+3. Create an OAuth client ("Web application") with this redirect URI: `http://localhost:3000/api/credentials/oauth/callback`
+4. Put the client ID and secret in `.env.local` as `CONNECT_GOOGLE_CLIENT_ID` and `CONNECT_GOOGLE_CLIENT_SECRET`.
+
+Google logs test apps out every 7 days. When that happens, hit **Reconnect** under Connections. Drive can only see files Conduit made itself, which is on purpose. The `scripts/try-google-*.mts` scripts check each Google service against your real account.
+
+**Webhooks and forms from the internet:** your laptop isn't reachable from outside, so run a free Cloudflare tunnel with `cloudflared tunnel --url http://localhost:3000` and put the address it prints into `PUBLIC_URL`. The address changes every time, and anyone with the link can reach your sign-in page, so close the tunnel when you're done.
+
+## Running it for real
+
+In dev, workflows run inside `npm run dev`. On a server you'd run the worker on its own (`npm start -w worker`, as many copies as you want) and set `CONDUIT_WORKER=off` on the web side. Jobs are claimed with a lease, so two workers never run the same thing.
+
+By default each workspace runs up to 4 workflows at once (`WORKSPACE_CONCURRENCY`) and keeps run logs for 7 days (`EXECUTION_RETENTION_DAYS`). HTTP steps can't hit private network addresses unless you set `HTTP_ALLOW_PRIVATE_NETWORK=1`. If it sits behind a reverse proxy, set `TRUST_PROXY=1` so the chat page can rate-limit by IP.
 
 ## Tests
 
 ```bash
-npm test                 # unit + integration tests (core, nodes, engine, runtime)
-npm run typecheck        # all workspaces
-npm run e2e              # Playwright, needs `npm run db` running; starts its own server on :3100
+npm test            # unit and integration tests
+npm run typecheck
+npm run e2e         # Playwright; needs `npm run db` running, starts its own app on :3100
 ```
 
-The E2E suite signs in through the real OTP flow, using a separate `conduit_e2e` database and outbox.
+The tests use a fake Telegram, Google and Slack (`packages/runtime/src/testing/fake-apis.ts`), so they run offline and never touch real accounts.
 
-## Layout
+## Where things live
 
 ```
-apps/web        Next.js 16 app: marketing, auth, dashboard, REST API (/api/*)
-packages/core   Shared zod schemas, graph validation, expression references, error codes
-packages/nodes  Step definitions (fields, handles, examples), parameter + connection rules
-packages/engine Pure workflow runner + step executors + cron (unit-tested, no I/O)
-packages/runtime Job queue, worker, sandbox (isolated-vm), SSRF-safe HTTP, publish/triggers
-apps/worker     Standalone production worker
-scripts/        dev-db.mjs (local MongoDB)
-docs/           Architecture, database schema, API
+apps/web          the Next.js app: pages, API routes, MCP server
+apps/worker       the standalone worker for production
+packages/core     shared types, schemas, graph validation
+packages/nodes    the step definitions (fields, inputs, outputs)
+packages/engine   runs a workflow graph step by step (no I/O, easy to test)
+packages/runtime  database, job queue, triggers, sandbox, app integrations, AI providers
+scripts           start/stop scripts, the dev database, "try it for real" scripts
+docs              how it works, the database, the API
 ```
+
+More detail in [docs/how-it-works.md](docs/how-it-works.md).
