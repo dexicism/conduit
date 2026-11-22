@@ -40,6 +40,15 @@ export async function GET(req: Request) {
     });
     if (!tokens.refreshToken) return done({ error: `${app.name} didn't grant offline access. Remove Conduit from your account's connected apps and try again.` });
     const email = await fetchAccountEmail(integrations.http, integrations.apiUrl, app.auth.provider, tokens.accessToken);
+    if (pending.reconnectId) {
+      const renewed = await integrations.replaceTokens(pending.workspaceId, pending.reconnectId, {
+        values: { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken },
+        account: email,
+        expiresAt: tokens.expiresAt ? new Date(tokens.expiresAt) : null,
+      });
+      if (!renewed) return done({ error: "That account was removed while you were signing in. Connect it again." });
+      return done({ id: renewed._id.toHexString(), app: app.id });
+    }
     const doc = await integrations.create({
       workspaceId: pending.workspaceId,
       userId: session.user.id,

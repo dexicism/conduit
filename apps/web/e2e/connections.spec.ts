@@ -93,6 +93,19 @@ test.describe("Connected apps", () => {
     const token = calls.find((c) => c.host === "oauth2.googleapis.com");
     expect(token?.body).toMatchObject({ grant_type: "authorization_code", client_id: "fake-google-client-id" });
     expect(String(token?.body.code_verifier).length).toBeGreaterThanOrEqual(43);
+
+    // Reconnect renews the same account (workflows keep pointing at it) instead of adding another.
+    const accounts = page.getByRole("list", { name: "Accounts" }).getByRole("listitem");
+    const before = await accounts.count();
+    const [again] = await Promise.all([context.waitForEvent("page"), row.getByRole("button", { name: `Reconnect ${label}` }).click()]);
+    await again.waitForURL(/\/app\/connections\/done\?id=/);
+    await expect(page.getByText("Reconnected")).toBeVisible({ timeout: 15_000 });
+    expect(await accounts.count()).toBe(before);
+    const tokenCalls = (await fakeCalls(page.request)).filter((c) => c.host === "oauth2.googleapis.com" && c.body?.grant_type === "authorization_code");
+    expect(tokenCalls.length).toBeGreaterThanOrEqual(2);
+    // The new sign-in asks for every permission the app needs, Drive included.
+    const authorize = (await fakeCalls(page.request)).filter((c) => c.host === "accounts.google.com").at(-1);
+    expect(decodeURIComponent(String(authorize?.path))).toContain("https://www.googleapis.com/auth/drive.file");
   });
 
   test("a stale or foreign OAuth state is refused", async ({ page }) => {

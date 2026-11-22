@@ -2,9 +2,9 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleHelp, Loader2Icon, PencilIcon, PlugIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ConnectDialog } from "@/components/connections/connect-dialog";
+import { ConnectDialog, type OAuthDoneMessage } from "@/components/connections/connect-dialog";
 import { ICONS } from "@/components/editor/node-visuals";
 import {
   AlertDialog,
@@ -40,6 +40,22 @@ export function ConnectionsView() {
   const [connecting, setConnecting] = useState<AppInfo | null>(null);
   const [renaming, setRenaming] = useState<CredentialView | null>(null);
   const [removing, setRemoving] = useState<{ cred: CredentialView; inUse?: string } | null>(null);
+
+  const [reconnecting, setReconnecting] = useState<string | null>(null);
+
+  // The sign-in tab reports back when a reconnect finishes.
+  useEffect(() => {
+    if (!reconnecting) return;
+    const onMessage = (e: MessageEvent<OAuthDoneMessage>) => {
+      if (e.origin !== window.location.origin || e.data?.type !== "conduit:oauth-done") return;
+      setReconnecting(null);
+      void qc.invalidateQueries({ queryKey: ["credentials"] });
+      if (e.data.error) toast.error(e.data.error);
+      else toast.success("Reconnected");
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [reconnecting, qc]);
 
   const apps = q.data?.apps ?? [];
   const byId = new Map(apps.map((a) => [a.id, a]));
@@ -122,6 +138,22 @@ export function ConnectionsView() {
                     {c.status === "ok" ? "Working" : "Needs attention"}
                   </span>
                   <div className="flex gap-1">
+                    {app?.auth.kind === "oauth2" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Reconnect ${c.label}`}
+                        title="Sign in again, e.g. to grant new permissions"
+                        disabled={reconnecting === c.id}
+                        onClick={() => {
+                          setReconnecting(c.id);
+                          window.open(`/api/credentials/oauth/${c.app}/start?reconnect=${c.id}`, "_blank");
+                        }}
+                      >
+                        {reconnecting === c.id ? <Loader2Icon className="animate-spin" /> : null}
+                        Reconnect
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon-sm" aria-label={`Check ${c.label}`} disabled={test.isPending} onClick={() => test.mutate(c.id)}>
                       {test.isPending && test.variables === c.id ? <Loader2Icon className="animate-spin" /> : <RefreshCwIcon />}
                     </Button>

@@ -15,9 +15,16 @@ export const GET = route<Ctx>(async (req, ctx) => {
   const { app: appId } = await ctx.params;
   const app = requireAvailableApp(appId);
   if (app.auth.kind !== "oauth2") throw new ApiError(400, "invalid_request", `${app.name} connects with a form, not sign-in`);
-  const label = (searchParamsObject(req).label ?? "").trim().slice(0, 80) || app.name;
+  const params = searchParamsObject(req);
+  const label = (params.label ?? "").trim().slice(0, 80) || app.name;
 
   const { integrations } = rt();
+  // Reconnect: renew an existing account of this app in this workspace.
+  const reconnectId = params.reconnect?.trim() || undefined;
+  if (reconnectId) {
+    const existing = await integrations.find(workspace.workspaceId, reconnectId);
+    if (!existing || existing.app !== app.id) throw new ApiError(404, "not_found", "That account doesn't exist in this workspace");
+  }
   const client = integrations.oauthClients[app.auth.provider]!;
   const pkce = newPkce();
   const state = newState();
@@ -31,6 +38,7 @@ export const GET = route<Ctx>(async (req, ctx) => {
     codeVerifier: pkce.verifier,
     redirectUri,
     expiresAt: new Date(Date.now() + 10 * 60_000),
+    ...(reconnectId ? { reconnectId } : {}),
   });
   const url = authorizeUrl(
     app.auth.provider,

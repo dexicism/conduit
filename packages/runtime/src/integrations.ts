@@ -54,6 +54,8 @@ export interface OAuthStateDoc {
   codeVerifier: string;
   redirectUri: string;
   expiresAt: Date;
+  /** Reconnecting: the saved account to give the new tokens to (keeps workflows pointing at it). */
+  reconnectId?: string;
 }
 
 export function credentialCollections(db: Db) {
@@ -280,6 +282,29 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
   async function list(workspaceId: ObjectId, app?: string): Promise<CredentialView[]> {
     const docs = await c.credentials.find({ workspaceId, ...(app ? { app } : {}) }, { sort: { createdAt: -1 }, limit: 500 }).toArray();
     return docs.map(toCredentialView);
+  }
+
+  /** Reconnecting an OAuth account: new tokens (and permissions) for the same saved account. */
+  async function replaceTokens(workspaceId: ObjectId, id: string, input: { values: Record<string, string>; account: string | null; expiresAt: Date | null }) {
+    const doc = await find(workspaceId, id);
+    if (!doc) return null;
+    await c.credentials.updateOne(
+      { _id: doc._id },
+      {
+        $set: {
+          secret: cfg.vault.seal(doc.workspaceId, doc._id, input.values),
+          account: input.account ?? doc.account ?? null,
+          expiresAt: input.expiresAt,
+          refreshLockUntil: null,
+          status: "ok",
+          lastError: null,
+          testedAt: new Date(),
+          updatedAt: new Date(),
+        },
+        $inc: { version: 1 },
+      },
+    );
+    return find(workspaceId, id);
   }
 
   async function storeTokens(doc: CredentialDoc, tokens: TokenSet, prev: Record<string, string>) {
@@ -555,6 +580,7 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
     remove,
     rename,
     storeTokens,
+    replaceTokens,
     telegram,
     collections: c,
     http: cfg.http,
