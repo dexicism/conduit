@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { StepError, type HttpRequest, type HttpResponse, type IntegrationServices, type MailMessage, type SqlResult } from "@conduit/engine";
+import { checkDiscordWebhook, mailchimpAuth, mailchimpBase, ntfyServer, StepError, type HttpRequest, type HttpResponse, type IntegrationServices, type MailMessage, type SqlResult } from "@conduit/engine";
 import { getApp, secretFieldNames, type AppDefinition, type DynamicOptionsSource, type OAuthProviderId } from "@conduit/nodes";
 import { ObjectId, type Db } from "mongodb";
 import nodemailer from "nodemailer";
@@ -228,7 +228,7 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
 
   /** Apps that can be connected on this server. OAuth apps need client credentials. */
   function availableApps(): string[] {
-    const ids = ["telegram", "slack", "whatsapp", "google", "postgres", "smtp", "httpHeader"];
+    const ids = ["telegram", "slack", "whatsapp", "google", "notion", "airtable", "discord", "github", "trello", "todoist", "mailchimp", "ntfy", "postgres", "smtp", "httpHeader"];
     return ids.filter((id) => {
       const app = getApp(id)!;
       return app.auth.kind === "fields" || Boolean(cfg.oauthClients[app.auth.provider]);
@@ -417,6 +417,55 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
         const email = await fetchAccountEmail(cfg.http, apiUrl, "google", values.accessToken ?? "");
         if (!email) throw new StepError("Google rejected the sign-in. Reconnect the account.");
         return email;
+      }
+      case "notion": {
+        const res = await callApi({ method: "GET", url: "https://api.notion.com/v1/users/me", headers: { authorization: `Bearer ${values.token}`, "notion-version": "2022-06-28" } });
+        const b = res.body as { name?: string; message?: string };
+        if (res.status >= 400) throw new StepError(`Notion: ${b?.message ?? `status ${res.status}`}`);
+        return b.name ?? null;
+      }
+      case "airtable": {
+        const res = await callApi({ method: "GET", url: "https://api.airtable.com/v0/meta/whoami", headers: { authorization: `Bearer ${values.token}` } });
+        const b = res.body as { email?: string; error?: { message?: string } | string };
+        if (res.status >= 400) throw new StepError(`Airtable: ${typeof b?.error === "object" ? b.error?.message : (b?.error ?? `status ${res.status}`)}`);
+        return b.email ?? null;
+      }
+      case "discord": {
+        const res = await callApi({ method: "GET", url: checkDiscordWebhook(values.webhookUrl ?? "") });
+        const b = res.body as { name?: string; message?: string };
+        if (res.status >= 400) throw new StepError(`Discord: ${b?.message ?? `status ${res.status}`}`);
+        return b.name ? `webhook "${b.name}"` : null;
+      }
+      case "github": {
+        const res = await callApi({ method: "GET", url: "https://api.github.com/user", headers: { authorization: `Bearer ${values.token}`, accept: "application/vnd.github+json" } });
+        const b = res.body as { login?: string; message?: string };
+        if (res.status >= 400) throw new StepError(`GitHub: ${b?.message ?? `status ${res.status}`}`);
+        return b.login ? `@${b.login}` : null;
+      }
+      case "trello": {
+        const qs = new URLSearchParams({ key: values.apiKey ?? "", token: values.token ?? "", fields: "username,fullName" });
+        const res = await callApi({ method: "GET", url: `https://api.trello.com/1/members/me?${qs}` });
+        const b = res.body as { username?: string } | string;
+        if (res.status >= 400) throw new StepError(`Trello: ${typeof b === "string" ? b : `status ${res.status}`}`);
+        return typeof b === "object" && b.username ? `@${b.username}` : null;
+      }
+      case "todoist": {
+        const res = await callApi({ method: "GET", url: "https://api.todoist.com/api/v1/user", headers: { authorization: `Bearer ${values.token}` } });
+        const b = res.body as { email?: string; full_name?: string };
+        if (res.status >= 400) throw new StepError(`Todoist: the token was rejected (status ${res.status})`);
+        return b.email ?? b.full_name ?? null;
+      }
+      case "mailchimp": {
+        const res = await callApi({ method: "GET", url: `${mailchimpBase(values.apiKey ?? "")}/`, headers: { authorization: mailchimpAuth(values.apiKey ?? "") } });
+        const b = res.body as { account_name?: string; detail?: string };
+        if (res.status >= 400) throw new StepError(`Mailchimp: ${b?.detail ?? `status ${res.status}`}`);
+        return b.account_name ?? null;
+      }
+      case "ntfy": {
+        const server = ntfyServer(values.server);
+        const res = await callApi({ method: "GET", url: `${server}/v1/health`, headers: values.accessToken ? { authorization: `Bearer ${values.accessToken}` } : {} });
+        if (res.status >= 400) throw new StepError(`ntfy: ${server} answered with status ${res.status}`);
+        return new URL(server).host;
       }
       case "postgres":
         await runPostgres(values, "select 1", [], 10_000, cfg.allowPrivateNetwork);

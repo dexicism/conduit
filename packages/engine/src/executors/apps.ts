@@ -2,6 +2,7 @@ import type { KeyValuePair } from "@conduit/nodes";
 import type { EngineServices, Executor, HttpResponse, IntegrationServices, Item } from "../types";
 import { StepError } from "../types";
 import { parseJsonParam, toNumber, toText } from "../values";
+import { MORE_APP_ACTIONS } from "./apps-more";
 
 type Json = Record<string, unknown>;
 /** One app action, run with resolved parameters. Returns one result or several (one item each). */
@@ -434,6 +435,7 @@ const driveRead: AppAction = async (p, services) => {
 };
 
 export const APP_ACTIONS: Record<string, AppAction> = {
+  ...MORE_APP_ACTIONS,
   "app.drive.save": driveSave,
   "app.drive.find": driveFind,
   "app.drive.read": driveRead,

@@ -706,3 +706,196 @@ describe("Telegram polling, bad updates", () => {
     }
   }, 20_000);
 });
+
+describe("more apps", () => {
+  it("account checks show who you're connected as, and reject bad keys", async () => {
+    const ok: Array<[string, Record<string, string>, string | null]> = [
+      ["notion", { token: FAKE.notionToken }, "Conduit"],
+      ["airtable", { token: FAKE.airtableToken }, "tester@example.com"],
+      ["discord", { webhookUrl: `https://discord.com/api/webhooks/${FAKE.discordWebhook}` }, 'webhook "Conduit alerts"'],
+      ["github", { token: FAKE.githubToken }, "@conduit-tester"],
+      ["trello", { apiKey: FAKE.trelloKey, token: FAKE.trelloToken }, "@conduittester"],
+      ["todoist", { token: FAKE.todoistToken }, "tester@example.com"],
+      ["mailchimp", { apiKey: FAKE.mailchimpKey }, "Acme"],
+      ["ntfy", { server: "https://ntfy.sh" }, "ntfy.sh"],
+    ];
+    for (const [app, values, who] of ok) expect(await integ.check(app, values), app).toBe(who);
+    await expect(integ.check("notion", { token: "nope" })).rejects.toThrow("Notion: API token is invalid.");
+    await expect(integ.check("github", { token: "nope" })).rejects.toThrow("GitHub: Bad credentials");
+    await expect(integ.check("mailchimp", { apiKey: "no-datacenter" })).rejects.toThrow(/end with a data center/);
+    await expect(integ.check("discord", { webhookUrl: "https://example.com/hook" })).rejects.toThrow(/isn't a webhook URL/);
+    expect(integ.availableApps()).toEqual(expect.arrayContaining(["notion", "airtable", "discord", "github", "trello", "todoist", "mailchimp", "ntfy"]));
+  });
+
+  it("Notion: matches columns by name and type, then reads pages back as plain values", async () => {
+    const ws = new ObjectId();
+    const id = await cred(ws, "notion", { token: FAKE.notionToken });
+    const dbLink = `https://www.notion.so/acme/${FAKE.notionDatabase}?v=1`;
+    const add = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["add"] } },
+      {
+        id: "add",
+        type: "app.notion.addPage",
+        parameters: {
+          credential: id,
+          database: dbLink,
+          columns: [
+            { key: "name", value: "Ana" },
+            { key: "Email", value: "${['$input']['email']}" },
+            { key: "Score", value: "42" },
+            { key: "Tags", value: "vip, beta" },
+            { key: "VIP", value: "yes" },
+          ],
+          content: "First paragraph\n\nSecond one",
+        },
+      },
+    ]);
+    expect(add.done.status).toBe("success");
+    const page = fake.state.notionPages[0]!;
+    expect(page.properties).toMatchObject({
+      Name: { type: "title" },
+      Email: { email: "ana@example.com" },
+      Score: { number: 42 },
+      Tags: { multi_select: [{ name: "vip" }, { name: "beta" }] },
+      VIP: { checkbox: true },
+    });
+    expect(page.children).toHaveLength(2);
+
+    const read = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["q"] } },
+      { id: "q", type: "app.notion.query", parameters: { credential: id, database: FAKE.notionDatabase } },
+    ]);
+    expect(read.output("q")).toEqual([expect.objectContaining({ Name: "Ana", Email: "ana@example.com", Score: 42, Tags: ["vip", "beta"], VIP: true })]);
+
+    const bad = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["add"] } },
+      { id: "add", type: "app.notion.addPage", parameters: { credential: id, database: FAKE.notionDatabase, columns: [{ key: "Score", value: "lots" }] } },
+    ]);
+    expect(bad.done.error?.message).toBe('Notion: "Score" needs a number');
+    const people = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["add"] } },
+      { id: "add", type: "app.notion.addPage", parameters: { credential: id, database: FAKE.notionDatabase, columns: [{ key: "Owner", value: "Ana" }] } },
+    ]);
+    expect(people.done.error?.message).toMatch(/"Owner" column is a people column/);
+    const notShared = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["add"] } },
+      { id: "add", type: "app.notion.addPage", parameters: { credential: id, database: "f".repeat(32), columns: [{ key: "Name", value: "x" }] } },
+    ]);
+    expect(notShared.done.error?.message).toMatch(/share the database with your integration/);
+  });
+
+  it("Airtable: adds with typecast and lists with a filter", async () => {
+    const ws = new ObjectId();
+    const id = await cred(ws, "airtable", { token: FAKE.airtableToken });
+    const base = `https://airtable.com/${FAKE.airtableBase}/tblX/viwY`;
+    for (const [name, status] of [
+      ["Ana", "Open"],
+      ["Ben", "Closed"],
+    ]) {
+      const r = await run(ws, [
+        { id: "t", type: "trigger.manual", to: { main: ["add"] } },
+        { id: "add", type: "app.airtable.add", parameters: { credential: id, base, table: "Leads", fields: [{ key: "Name", value: name }, { key: "Status", value: status }] } },
+      ]);
+      expect(r.done.status).toBe("success");
+    }
+    const post = fake.calls.find((c) => c.host === "api.airtable.com" && c.method === "POST");
+    expect(post?.body).toMatchObject({ typecast: true, records: [{ fields: { Name: "Ana", Status: "Open" } }] });
+    const list = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["l"] } },
+      { id: "l", type: "app.airtable.list", parameters: { credential: id, base: FAKE.airtableBase, table: "Leads", filter: "{Status} = 'Open'" } },
+    ]);
+    expect(list.output("l")!.map((r) => (r as { Name: string }).Name)).toEqual(["Ana"]);
+    const missing = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["l"] } },
+      { id: "l", type: "app.airtable.list", parameters: { credential: id, base: FAKE.airtableBase, table: "Nope" } },
+    ]);
+    expect(missing.done.error?.message).toBe("Airtable: Could not find table Nope (check the base ID and table name)");
+  });
+
+  it("Discord, GitHub, Trello and Todoist send what you'd expect", async () => {
+    const ws = new ObjectId();
+    const discord = await cred(ws, "discord", { webhookUrl: `https://discord.com/api/webhooks/${FAKE.discordWebhook}` });
+    const github = await cred(ws, "github", { token: FAKE.githubToken });
+    const trello = await cred(ws, "trello", { apiKey: FAKE.trelloKey, token: FAKE.trelloToken });
+    const todoist = await cred(ws, "todoist", { token: FAKE.todoistToken });
+    const r = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["d", "g", "tr", "td"] } },
+      { id: "d", type: "app.discord.send", parameters: { credential: discord, content: "New lead @everyone: ${['$input']['email']}", username: "Conduit" } },
+      { id: "g", type: "app.github.issue", parameters: { credential: github, repo: "https://github.com/acme/site", title: "Form error", body: "From ${['$input']['email']}", labels: "bug, from-form" } },
+      { id: "tr", type: "app.trello.card", parameters: { credential: trello, list: FAKE.trelloList, name: "Call ${['$input']['email']}", due: "2026-01-15T17:00:00Z" } },
+      { id: "td", type: "app.todoist.task", parameters: { credential: todoist, content: "Follow up", due: "tomorrow 5pm", priority: "4", labels: "work" } },
+    ]);
+    expect(r.done.status).toBe("success");
+    expect(fake.state.discordMessages[0]).toEqual({ content: "New lead @everyone: ana@example.com", username: "Conduit", allowed_mentions: { parse: [] } });
+    expect(r.output("g")).toEqual([{ number: 1, url: "https://github.com/acme/site/issues/1", id: 3000000001 }]);
+    expect(fake.state.githubIssues[0]).toEqual({ title: "Form error", body: "From ana@example.com", labels: ["bug", "from-form"] });
+    expect(fake.state.trelloCards[0]).toMatchObject({ idList: FAKE.trelloList, name: "Call ana@example.com", due: "2026-01-15T17:00:00Z" });
+    expect(r.output("tr")).toEqual([{ id: "600000000000000000000000", url: "https://trello.com/c/AbCd1234" }]);
+    expect(fake.state.todoistTasks[0]).toEqual({ content: "Follow up", priority: 4, due_string: "tomorrow 5pm", labels: ["work"] });
+    expect(r.output("td")![0]).toMatchObject({ id: "6Jf8VQXxpwv56VQ7", due: "2026-01-02" });
+
+    const errs = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["g"] } },
+      { id: "g", type: "app.github.issue", parameters: { credential: github, repo: "acme/private", title: "x" } },
+    ]);
+    expect(errs.done.error?.message).toBe("GitHub: Not Found (check the repository name, and that the token can see it)");
+    const list = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["tr"] } },
+      { id: "tr", type: "app.trello.card", parameters: { credential: trello, list: "not-a-list", name: "x" } },
+    ]);
+    expect(list.done.error?.message).toMatch(/the list ID is 24 letters and numbers/);
+  });
+
+  it("Mailchimp upserts by email and adds tags; ntfy sends and explains locked topics", async () => {
+    const ws = new ObjectId();
+    const mc = await cred(ws, "mailchimp", { apiKey: FAKE.mailchimpKey });
+    const nt = await cred(ws, "ntfy", { server: "https://ntfy.sh" });
+    const sub = (email: string) =>
+      run(ws, [
+        { id: "t", type: "trigger.manual", to: { main: ["m"] } },
+        { id: "m", type: "app.mailchimp.subscribe", parameters: { credential: mc, audience: FAKE.mailchimpList, email, status: "pending", mergeFields: [{ key: "fname", value: "Ana" }], tags: "website" } },
+      ]);
+    const first = await sub("Ana@Example.com");
+    expect(first.output("m")).toEqual([{ id: expect.stringMatching(/^[0-9a-f]{32}$/), email: "ana@example.com", status: "pending" }]);
+    await sub("ana@example.com");
+    expect(fake.state.mailchimpMembers).toHaveLength(1);
+    expect(fake.state.mailchimpMembers[0]).toMatchObject({ merge: { FNAME: "Ana" }, tags: ["website"] });
+    expect((await sub("not-an-email")).done.error?.message).toMatch(/isn't a valid email address/);
+
+    const sent = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["n"] } },
+      { id: "n", type: "app.ntfy.send", parameters: { credential: nt, topic: "my-alerts", title: "New lead", message: "${['$input']['email']}", priority: "4", tags: "tada", click: "https://acme.test" } },
+    ]);
+    expect(sent.done.status).toBe("success");
+    expect(fake.state.ntfyMessages[0]).toEqual({ topic: "my-alerts", message: "ana@example.com", title: "New lead", priority: 4, tags: ["tada"], click: "https://acme.test" });
+    const locked = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["n"] } },
+      { id: "n", type: "app.ntfy.send", parameters: { credential: nt, topic: "locked-alerts", message: "x" } },
+    ]);
+    expect(locked.done.error?.message).toBe("ntfy: forbidden (the token can't write to this topic)");
+  });
+
+  it("RSS: reads RSS and Atom feeds, and says when a URL isn't a feed", async () => {
+    const ws = new ObjectId();
+    const rss = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["r"] } },
+      { id: "r", type: "app.rss.read", parameters: { url: "https://feeds.test/rss.xml", limit: 5 } },
+    ]);
+    expect(rss.output("r")).toEqual([
+      { title: "Hello <world>", link: "https://acme.test/hello", id: "post-1", published: "2026-01-01T09:00:00.000Z", summary: "First & best", author: "Ana", feed: "Acme & Co blog" },
+      { title: "Second", link: "https://acme.test/second", id: "https://acme.test/second", published: "not a date", summary: null, author: null, feed: "Acme & Co blog" },
+    ]);
+    const atom = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["r"] } },
+      { id: "r", type: "app.rss.read", parameters: { url: "https://feeds.test/atom.xml" } },
+    ]);
+    expect(atom.output("r")).toEqual([
+      { title: "Atom post", link: "https://acme.test/atom-post", id: "urn:1", published: "2026-01-02T10:00:00.000Z", summary: "Short – sweet", author: "Ben", feed: "Atom news" },
+    ]);
+    const html = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["r"] } },
+      { id: "r", type: "app.rss.read", parameters: { url: "https://feeds.test/page.html" } },
+    ]);
+    expect(html.done.error?.message).toBe("RSS: that URL didn't return an RSS or Atom feed");
+  });
+});

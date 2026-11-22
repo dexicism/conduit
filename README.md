@@ -13,11 +13,11 @@ The AI runs locally through [Ollama](https://ollama.com), so there's no API bill
 
 ## What's in it
 
-- **Editor:** 40-odd kinds of steps, a settings panel for each one, a picker for pulling data from earlier steps, undo/redo, copy/paste, sticky notes, auto-layout. It auto-saves and won't let two tabs overwrite each other.
+- **Editor:** 50-odd kinds of steps, a settings panel for each one, a picker for pulling data from earlier steps, undo/redo, copy/paste, sticky notes, auto-layout. It auto-saves and won't let two tabs overwrite each other.
 - **Triggers:** manual, webhook, schedule, form, chat page, Telegram, "called by another workflow", and "on error".
 - **Logic:** if/switch, loops, filter, merge, set fields, text/math/date/JSON helpers, HTTP requests, and a JavaScript step that runs in a sandbox.
 - **AI:** an agent that can use tools and remember a conversation, plus classify, sentiment, moderation and "pull data out of this text" steps. There's also a chat builder: describe a workflow and it drafts it on the canvas.
-- **Apps:** Telegram, Gmail, Google Sheets, Calendar and Drive, Slack, WhatsApp Business, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
+- **Apps:** Telegram, Gmail, Google Sheets, Calendar and Drive, Notion, Airtable, Slack, Discord, WhatsApp Business, GitHub, Trello, Todoist, Mailchimp, ntfy (push notifications to your phone), RSS feeds, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
 - **The rest:** run history with every step's input and output, teams with roles, API keys and a REST API, outgoing webhooks, an MCP server so AI assistants can read and edit workflows, and two-step sign-in.
 
 ## Running it (Windows, the easy way)
@@ -68,6 +68,18 @@ Saved accounts are encrypted. In dev the key is created for you in `.data/encryp
 
 Google logs test apps out every 7 days. When that happens, hit **Reconnect** under Connections. Drive can only see files Conduit made itself, which is on purpose. The `scripts/try-google-*.mts` scripts check each Google service against your real account.
 
+**Everything else** just needs a key pasted under Connections. The connect dialog says where to find it for each app, but roughly:
+
+- **Notion:** make an internal integration at notion.so/profile/integrations, then add it to each database (••• → Connections). Without that last bit you get "not found".
+- **Airtable:** a personal access token with the `data.records` scopes and access to your base.
+- **Discord:** a channel webhook URL (Server Settings → Integrations → Webhooks). @mentions are switched off by default so a workflow can't ping @everyone by accident.
+- **GitHub:** a fine-grained token with Issues: read and write.
+- **Trello:** an API key from a Power-Up, plus a token. The list ID hides in any card's URL with `.json` on the end.
+- **Todoist:** your API token from Settings → Integrations → Developer.
+- **Mailchimp:** an API key. Adding someone who's already on the list just updates them, so re-running is safe.
+- **ntfy:** nothing to sign up for. Install the ntfy app, subscribe to a hard-to-guess topic, and send to it.
+- **RSS:** no account at all. Put it after a schedule to watch a blog.
+
 **Webhooks and forms from the internet:** your laptop isn't reachable from outside, so run a free Cloudflare tunnel with `cloudflared tunnel --url http://localhost:3000` and put the address it prints into `PUBLIC_URL`. The address changes every time, and anyone with the link can reach your sign-in page, so close the tunnel when you're done.
 
 ## Running it for real
@@ -84,7 +96,7 @@ npm run typecheck
 npm run e2e         # Playwright; needs `npm run db` running, starts its own app on :3100
 ```
 
-The tests use a fake Telegram, Google and Slack (`packages/runtime/src/testing/fake-apis.ts`), so they run offline and never touch real accounts.
+The tests use fake versions of every app (`packages/runtime/src/testing/fake-apis.ts`), so they run offline and never touch real accounts. Telegram and the Google apps have also been checked against real accounts; the newer ones (Notion, Airtable, Discord, GitHub, Trello, Todoist, Mailchimp, ntfy) so far only against the fakes.
 
 ## Where things live
 

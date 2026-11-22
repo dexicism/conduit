@@ -34,6 +34,14 @@ export interface FakeState {
   /** Updates waiting for getUpdates (polling mode). Push to simulate someone messaging the bot. */
   telegramUpdates: Array<Record<string, unknown>>;
   driveFiles: Array<{ id: string; name: string; mimeType: string; content: string; parents?: string[] }>;
+  notionPages: Array<{ id: string; properties: Record<string, unknown>; children: unknown[] }>;
+  airtableRecords: Array<{ id: string; createdTime: string; fields: Record<string, unknown> }>;
+  discordMessages: Array<Record<string, unknown>>;
+  githubIssues: Array<Record<string, unknown>>;
+  trelloCards: Array<Record<string, unknown>>;
+  todoistTasks: Array<Record<string, unknown>>;
+  mailchimpMembers: Array<{ hash: string; email: string; status: string; merge: Record<string, string>; tags: string[] }>;
+  ntfyMessages: Array<Record<string, unknown>>;
 }
 
 export const FAKE = {
@@ -45,6 +53,19 @@ export const FAKE = {
   googleEmail: "tester@example.com",
   whatsappToken: "EAAG-fake-whatsapp-token",
   whatsappPhoneId: "1098765432",
+  notionToken: "ntn_fake_notion_token_123",
+  notionDatabase: "0123456789abcdef0123456789abcdef",
+  airtableToken: "patFakeAirtableToken.123",
+  airtableBase: "appFAKEbase123456",
+  discordWebhook: "1234567890/fake-webhook-token",
+  githubToken: "github_pat_fake_token_123",
+  trelloKey: "fake-trello-key",
+  trelloToken: "fake-trello-token-abc",
+  trelloList: "5f0c0c0c0c0c0c0c0c0c0c0c",
+  todoistToken: "fake-todoist-token-0123",
+  mailchimpKey: "fakemailchimpkey123-us21",
+  mailchimpList: "a1b2c3d4e5",
+  ntfyToken: "tk_fakentfytoken",
 };
 
 function freshState(): FakeState {
@@ -65,6 +86,14 @@ function freshState(): FakeState {
     telegramWebhooks: {},
     telegramUpdates: [],
     driveFiles: [],
+    notionPages: [],
+    airtableRecords: [],
+    discordMessages: [],
+    githubIssues: [],
+    trelloCards: [],
+    todoistTasks: [],
+    mailchimpMembers: [],
+    ntfyMessages: [],
   };
 }
 
@@ -192,6 +221,151 @@ export function startFakeApis(port = 0): Promise<FakeApis> {
         if (!googleAuthed(req)) return send(res, 401, { error: { code: 401, message: "Request had invalid authentication credentials." } });
         const id = `evt${randomBytes(4).toString("hex")}`;
         return send(res, 200, { id, status: "confirmed", htmlLink: `https://www.google.com/calendar/event?eid=${id}`, start: b.start, end: b.end, attendees: b.attendees });
+      }
+
+      // --- Notion -----------------------------------------------------------
+      if (host === "api.notion.com") {
+        if (req.headers.authorization !== `Bearer ${FAKE.notionToken}`) return send(res, 401, { object: "error", code: "unauthorized", message: "API token is invalid." });
+        if (req.headers["notion-version"] !== "2022-06-28") return send(res, 400, { object: "error", code: "missing_version", message: "Notion-Version header failed validation." });
+        if (path === "/v1/users/me") return send(res, 200, { object: "user", type: "bot", name: "Conduit" });
+        const db = /^\/v1\/databases\/([0-9a-f]{32})(\/query)?$/.exec(path);
+        if (db) {
+          if (db[1] !== FAKE.notionDatabase) return send(res, 404, { object: "error", code: "object_not_found", message: `Could not find database with ID: ${db[1]}.` });
+          if (!db[2]) return send(res, 200, { id: db[1], properties: { Name: { type: "title" }, Email: { type: "email" }, Score: { type: "number" }, Tags: { type: "multi_select" }, VIP: { type: "checkbox" }, Owner: { type: "people" } } });
+          return send(res, 200, { results: state.notionPages.slice(0, Number(b.page_size ?? 100)).map((pg) => ({ id: pg.id, url: `https://www.notion.so/${pg.id}`, properties: pg.properties })) });
+        }
+        if (req.method === "POST" && path === "/v1/pages") {
+          const props = Object.fromEntries(
+            Object.entries(b.properties as Record<string, Record<string, unknown>>).map(([k, v]) => {
+              const type = Object.keys(v)[0]!;
+              const val = v[type] as unknown;
+              const plain = type === "title" || type === "rich_text" ? (val as Array<{ text: { content: string } }>).map((t) => ({ plain_text: t.text.content })) : val;
+              return [k, { type, [type]: plain }];
+            }),
+          );
+          const id = `${randomBytes(4).toString("hex")}-page`;
+          state.notionPages.push({ id, properties: props, children: (b.children as unknown[]) ?? [] });
+          return send(res, 200, { object: "page", id, url: `https://www.notion.so/${id}` });
+        }
+        return send(res, 404, { object: "error", code: "invalid_request_url", message: "Invalid request URL." });
+      }
+
+      // --- Airtable ---------------------------------------------------------
+      if (host === "api.airtable.com") {
+        if (req.headers.authorization !== `Bearer ${FAKE.airtableToken}`) return send(res, 401, { error: { type: "AUTHENTICATION_REQUIRED", message: "Authentication required" } });
+        if (path === "/v0/meta/whoami") return send(res, 200, { id: "usrFake", email: "tester@example.com" });
+        const m = /^\/v0\/(app[A-Za-z0-9]{14})\/([^/?]+)$/.exec(path);
+        if (!m || m[1] !== FAKE.airtableBase) return send(res, 404, { error: "NOT_FOUND" });
+        const table = decodeURIComponent(m[2]!);
+        if (table !== "Leads") return send(res, 404, { error: { type: "TABLE_NOT_FOUND", message: `Could not find table ${table}` } });
+        if (req.method === "POST") {
+          const recs = (b.records as Array<{ fields: Record<string, unknown> }>).map((r) => ({ id: `rec${randomBytes(7).toString("hex")}`, createdTime: "2026-01-01T09:00:00.000Z", fields: r.fields }));
+          state.airtableRecords.push(...recs);
+          return send(res, 200, { records: recs });
+        }
+        const formula = url.searchParams.get("filterByFormula");
+        const eq = formula ? /^\{(\w+)\} = '([^']*)'$/.exec(formula) : null;
+        if (formula && !eq) return send(res, 422, { error: { type: "INVALID_FILTER_BY_FORMULA", message: "The formula for filtering records is invalid" } });
+        const list = state.airtableRecords.filter((r) => !eq || String(r.fields[eq[1]!]) === eq[2]);
+        return send(res, 200, { records: list.slice(0, Number(url.searchParams.get("maxRecords") ?? 100)) });
+      }
+
+      // --- Discord webhooks -------------------------------------------------
+      if (host === "discord.com") {
+        const m = /^\/api\/webhooks\/(\d+)\/([\w-]+)$/.exec(path);
+        if (!m || `${m[1]}/${m[2]}` !== FAKE.discordWebhook) return send(res, 404, { message: "Unknown Webhook", code: 10015 });
+        if (req.method === "GET") return send(res, 200, { id: m[1], name: "Conduit alerts", channel_id: "1200000000000000000" });
+        state.discordMessages.push(b as Record<string, unknown>);
+        return send(res, 200, { id: "1300000000000000001", channel_id: "1200000000000000000", timestamp: "2026-01-01T09:00:00.000Z", content: b.content });
+      }
+
+      // --- GitHub -----------------------------------------------------------
+      if (host === "api.github.com") {
+        if (req.headers.authorization !== `Bearer ${FAKE.githubToken}`) return send(res, 401, { message: "Bad credentials" });
+        if (path === "/user") return send(res, 200, { login: "conduit-tester" });
+        const m = /^\/repos\/([\w.-]+)\/([\w.-]+)\/issues$/.exec(path);
+        if (!m || `${m[1]}/${m[2]}` !== "acme/site") return send(res, 404, { message: "Not Found" });
+        state.githubIssues.push(b as Record<string, unknown>);
+        const n = state.githubIssues.length;
+        return send(res, 201, { id: 3000000000 + n, number: n, html_url: `https://github.com/acme/site/issues/${n}` });
+      }
+
+      // --- Trello -----------------------------------------------------------
+      if (host === "api.trello.com") {
+        if (url.searchParams.get("key") !== FAKE.trelloKey || url.searchParams.get("token") !== FAKE.trelloToken) {
+          res.writeHead(401, { "content-type": "text/plain" });
+          return res.end("invalid key");
+        }
+        if (path === "/1/members/me") return send(res, 200, { username: "conduittester", fullName: "Conduit Tester" });
+        if (req.method === "POST" && path === "/1/cards") {
+          if (b.idList !== FAKE.trelloList) {
+            res.writeHead(404, { "content-type": "text/plain" });
+            return res.end("could not find the list");
+          }
+          state.trelloCards.push(b as Record<string, unknown>);
+          return send(res, 200, { id: "600000000000000000000000", shortUrl: "https://trello.com/c/AbCd1234", url: "https://trello.com/c/AbCd1234/1-card" });
+        }
+        return send(res, 404, "Cannot find");
+      }
+
+      // --- Todoist ----------------------------------------------------------
+      if (host === "api.todoist.com") {
+        if (req.headers.authorization !== `Bearer ${FAKE.todoistToken}`) return send(res, 401, "Unauthorized");
+        if (path === "/api/v1/user") return send(res, 200, { id: "1", email: "tester@example.com", full_name: "Tester" });
+        if (req.method === "POST" && path === "/api/v1/tasks") {
+          state.todoistTasks.push(b as Record<string, unknown>);
+          return send(res, 200, { id: "6Jf8VQXxpwv56VQ7", content: b.content, due: b.due_string ? { date: "2026-01-02", string: b.due_string } : null });
+        }
+        return send(res, 404, "Not found");
+      }
+
+      // --- Mailchimp --------------------------------------------------------
+      if (host === "us21.api.mailchimp.com") {
+        const expected = `Basic ${Buffer.from(`conduit:${FAKE.mailchimpKey}`).toString("base64")}`;
+        if (req.headers.authorization !== expected) return send(res, 401, { title: "API Key Invalid", status: 401, detail: "Your API key may be invalid, or you've attempted to access the wrong datacenter." });
+        if (path === "/3.0/") return send(res, 200, { account_name: "Acme", email: "owner@example.com" });
+        const m = /^\/3\.0\/lists\/(\w+)\/members\/([0-9a-f]{32})(\/tags)?$/.exec(path);
+        if (!m || m[1] !== FAKE.mailchimpList) return send(res, 404, { title: "Resource Not Found", status: 404, detail: "The requested resource could not be found." });
+        if (m[3]) {
+          const who = state.mailchimpMembers.find((x) => x.hash === m[2]);
+          if (who) who.tags = (b.tags as Array<{ name: string }>).map((t) => t.name);
+          res.writeHead(204);
+          return res.end();
+        }
+        const existing = state.mailchimpMembers.find((x) => x.hash === m[2]);
+        const member = existing ?? { hash: m[2]!, email: String(b.email_address), status: String(b.status_if_new), merge: {}, tags: [] as string[] };
+        if (b.merge_fields) member.merge = b.merge_fields as Record<string, string>;
+        if (!existing) state.mailchimpMembers.push(member);
+        return send(res, 200, { id: member.hash, email_address: member.email, status: member.status });
+      }
+
+      // --- ntfy -------------------------------------------------------------
+      if (host === "ntfy.sh") {
+        if (path === "/v1/health") return send(res, 200, { healthy: true });
+        if (req.method === "POST" && path === "/") {
+          if (String(b.topic).startsWith("locked-") && req.headers.authorization !== `Bearer ${FAKE.ntfyToken}`) return send(res, 403, { code: 40301, http: 403, error: "forbidden" });
+          state.ntfyMessages.push(b as Record<string, unknown>);
+          return send(res, 200, { id: "sPs71M8A2T", time: 1767258000, event: "message", topic: b.topic, message: b.message });
+        }
+        return send(res, 404, { code: 40401, error: "page not found" });
+      }
+
+      // --- RSS / Atom test feeds -------------------------------------------
+      if (host === "feeds.test") {
+        const feeds: Record<string, string> = {
+          "/rss.xml": `<?xml version="1.0"?><rss version="2.0"><channel><title>Acme &amp; Co blog</title>
+            <item><title><![CDATA[Hello <world>]]></title><link>https://acme.test/hello</link><guid>post-1</guid><pubDate>Thu, 01 Jan 2026 09:00:00 GMT</pubDate><description>&lt;p&gt;First &amp;amp; best&lt;/p&gt;</description><dc:creator>Ana</dc:creator></item>
+            <item><title>Second</title><link>https://acme.test/second</link><pubDate>not a date</pubDate></item>
+          </channel></rss>`,
+          "/atom.xml": `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Atom news</title>
+            <entry><title>Atom post</title><link rel="alternate" href="https://acme.test/atom-post"/><id>urn:1</id><updated>2026-01-02T10:00:00Z</updated><summary>Short &#8211; sweet</summary><author><name>Ben</name></author></entry>
+          </feed>`,
+          "/page.html": "<!doctype html><html><body>not a feed</body></html>",
+        };
+        const xml = feeds[path];
+        if (!xml) return send(res, 404, "nope");
+        res.writeHead(200, { "content-type": path.endsWith(".html") ? "text/html" : "application/rss+xml" });
+        return res.end(xml);
       }
 
       // --- Telegram -------------------------------------------------------

@@ -155,6 +155,82 @@ export const APP_DEFINITIONS: readonly AppDefinition[] = [
       ],
     },
   },
+  {
+    id: "notion",
+    name: "Notion",
+    description: "Add pages to and read Notion databases.",
+    icon: "NotebookPen",
+    help: "Go to notion.so/profile/integrations, create an internal integration, and paste its secret. Then open each database you want to use, click ••• → Connections and add the integration.",
+    auth: { kind: "fields", fields: [{ name: "token", label: "Integration secret", kind: "secret", required: true, placeholder: "ntn_…" }] },
+  },
+  {
+    id: "airtable",
+    name: "Airtable",
+    description: "Add and read records in Airtable bases.",
+    icon: "Table",
+    help: "Create a personal access token at airtable.com/create/tokens with the data.records:read and data.records:write scopes, and give it access to your bases.",
+    auth: { kind: "fields", fields: [{ name: "token", label: "Personal access token", kind: "secret", required: true, placeholder: "pat…" }] },
+  },
+  {
+    id: "discord",
+    name: "Discord",
+    description: "Post messages to a Discord channel.",
+    icon: "MessageSquare",
+    help: "In Discord, open Server Settings → Integrations → Webhooks, create a webhook for the channel and copy its URL. One connection posts to one channel.",
+    auth: { kind: "fields", fields: [{ name: "webhookUrl", label: "Webhook URL", kind: "secret", required: true, placeholder: "https://discord.com/api/webhooks/…" }] },
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    description: "Open issues in your repositories.",
+    icon: "GitBranch",
+    help: "Create a fine-grained token at github.com/settings/tokens with access to the repositories you want and Issues: Read and write.",
+    auth: { kind: "fields", fields: [{ name: "token", label: "Access token", kind: "secret", required: true, placeholder: "github_pat_…" }] },
+  },
+  {
+    id: "trello",
+    name: "Trello",
+    description: "Create cards on your Trello boards.",
+    icon: "SquareKanban",
+    help: "Create a Power-Up at trello.com/power-ups/admin to get an API key, then click the Token link next to it to generate a token.",
+    auth: {
+      kind: "fields",
+      fields: [
+        { name: "apiKey", label: "API key", kind: "string", required: true },
+        { name: "token", label: "Token", kind: "secret", required: true },
+      ],
+    },
+  },
+  {
+    id: "todoist",
+    name: "Todoist",
+    description: "Add tasks to Todoist.",
+    icon: "ListTodo",
+    help: "In Todoist, open Settings → Integrations → Developer and copy your API token.",
+    auth: { kind: "fields", fields: [{ name: "token", label: "API token", kind: "secret", required: true }] },
+  },
+  {
+    id: "mailchimp",
+    name: "Mailchimp",
+    description: "Add people to your Mailchimp audiences.",
+    icon: "MailPlus",
+    help: "In Mailchimp, open Profile → Extras → API keys and create a key. It ends with something like -us21.",
+    auth: { kind: "fields", fields: [{ name: "apiKey", label: "API key", kind: "secret", required: true, placeholder: "…-us21" }] },
+  },
+  {
+    id: "ntfy",
+    name: "ntfy",
+    description: "Free push notifications to your phone.",
+    icon: "BellRing",
+    help: "Install the ntfy app on your phone and subscribe to a topic. Leave the server as is for the free ntfy.sh service; an access token is only needed for protected topics or your own server.",
+    auth: {
+      kind: "fields",
+      fields: [
+        { name: "server", label: "Server", kind: "string", default: "https://ntfy.sh", placeholder: "https://ntfy.sh" },
+        { name: "accessToken", label: "Access token", kind: "secret", placeholder: "tk_… (optional)" },
+      ],
+    },
+  },
 ];
 
 const APPS = new Map(APP_DEFINITIONS.map((a) => [a.id, a]));

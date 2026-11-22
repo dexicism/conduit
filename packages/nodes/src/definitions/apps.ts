@@ -1,4 +1,5 @@
 import type { NodeDefinition, ParamField } from "../types";
+import { MORE_APP_ACTION_DEFINITIONS } from "./apps-more";
 
 const credential = (app: string): ParamField => ({
   kind: "credential",
@@ -378,4 +379,5 @@ export const APP_ACTION_DEFINITIONS: readonly NodeDefinition[] = [
   driveRead,
   postgresQuery,
   smtpSend,
+  ...MORE_APP_ACTION_DEFINITIONS,
 ];
