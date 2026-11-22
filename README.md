@@ -96,7 +96,7 @@ npm run typecheck
 npm run e2e         # Playwright; needs `npm run db` running, starts its own app on :3100
 ```
 
-The tests use fake versions of every app (`packages/runtime/src/testing/fake-apis.ts`), so they run offline and never touch real accounts. Telegram and the Google apps have also been checked against real accounts; the newer ones (Notion, Airtable, Discord, GitHub, Trello, Todoist, Mailchimp, ntfy) so far only against the fakes.
+The tests use fake versions of every app (`packages/runtime/src/testing/fake-apis.ts`), so they run offline and never touch real accounts. Telegram, the Google apps and ntfy have also been checked for real (`scripts/try-*.mts`); Notion, Airtable, Discord, GitHub, Trello, Todoist and Mailchimp so far only against the fakes.
 
 ## Where things live
 
