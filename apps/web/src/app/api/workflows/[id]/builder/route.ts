@@ -67,19 +67,8 @@ export const POST = route<Ctx>(async (req, ctx) => {
   const convo = await conversations().findOne({ workflowId, workspaceId: workspace.workspaceId });
   const history = (convo?.messages ?? []).map((m) => ({ role: m.role, text: m.text }));
 
-  // One Builder credit per message on a paid model; refunded if the model call fails.
-  const { runtime, ai } = rt();
-  const billable = ai.provider === "anthropic";
-  if (billable && !(await runtime.credits.debit(workspace.workspaceId, 1, { reason: "AI Builder message", builder: true }))) {
-    throw new ApiError(402, "insufficient_credits", "You've used this period's AI Builder credits. Upgrade your plan for more.");
-  }
-  let result: Awaited<ReturnType<typeof runBuilder>>;
-  try {
-    result = await runBuilder({ llm: ai.llm!, model: DEFAULT_MODEL, graph: wf.draft, history, message });
-  } catch (err) {
-    if (billable) await runtime.credits.refund(workspace.workspaceId, 1, "builder", "AI Builder message failed");
-    throw err;
-  }
+  const { ai } = rt();
+  const result = await runBuilder({ llm: ai.llm!, model: DEFAULT_MODEL, graph: wf.draft, history, message });
 
   let saved: { revision: number; updatedAt: string } | null = null;
   if (result.applied) {

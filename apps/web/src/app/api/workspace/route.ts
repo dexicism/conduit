@@ -10,7 +10,6 @@ export const GET = route(async (req) => {
     id: workspace.workspaceId.toHexString(),
     name: workspace.workspaceName,
     role: workspace.role,
-    plan: workspace.plan,
     personal: workspace.personal,
   });
 });

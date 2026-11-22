@@ -7,7 +7,6 @@ export const ERROR_CODES = [
   "not_found",
   "revision_conflict",
   "in_use",
-  "insufficient_credits",
   "rate_limited",
   "internal_error",
 ] as const;

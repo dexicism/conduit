@@ -13,6 +13,5 @@ export * from "./vault";
 export * from "./oauth";
 export * from "./integrations";
 export * from "./integrations-env";
-export * from "./credits";
 export * from "./outbound";
 export * from "./telegram-poll";

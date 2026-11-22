@@ -1,5 +1,4 @@
 import "server-only";
-import { planOf, type PlanId } from "@conduit/core";
 import { ObjectId } from "mongodb";
 import { collections, ensureIndexes, mongoClient } from "./db";
 
@@ -9,7 +8,6 @@ export interface WorkspaceContext {
   workspaceId: ObjectId;
   workspaceName: string;
   role: Role;
-  plan: PlanId;
   /** A personal workspace was created for the user; teams are created explicitly. */
   personal: boolean;
 }
@@ -22,7 +20,6 @@ function toContext(ws: Record<string, unknown>, role: Role): WorkspaceContext {
     workspaceId: ws._id as ObjectId,
     workspaceName: String(ws.name),
     role,
-    plan: planOf(ws.plan).id,
     personal: ws.personal !== false,
   };
 }
@@ -57,11 +54,11 @@ export async function ensurePersonalWorkspace(user: {
       const name = defaultName(user);
       await collections
         .workspaces()
-        .insertOne({ _id: workspaceId, name, ownerId: user.id, plan: "free", createdAt: now, updatedAt: now }, { session });
+        .insertOne({ _id: workspaceId, name, ownerId: user.id, createdAt: now, updatedAt: now }, { session });
       await collections
         .memberships()
         .insertOne({ workspaceId, userId: user.id, role: "owner", status: "active", createdAt: now }, { session });
-      ctx = { workspaceId, workspaceName: name, role: "owner", plan: "free", personal: true };
+      ctx = { workspaceId, workspaceName: name, role: "owner", personal: true };
     });
     return ctx ?? (await findDefaultWorkspace(user.id))!;
   } finally {
@@ -105,7 +102,6 @@ export interface WorkspaceSummary {
   id: string;
   name: string;
   role: Role;
-  plan: PlanId;
 }
 
 export async function listUserWorkspaces(userId: string): Promise<WorkspaceSummary[]> {
@@ -114,7 +110,7 @@ export async function listUserWorkspaces(userId: string): Promise<WorkspaceSumma
   const byId = new Map(wss.map((w) => [String(w._id), w]));
   return ms.flatMap((m) => {
     const w = byId.get(String(m.workspaceId));
-    return w ? [{ id: String(w._id), name: String(w.name), role: m.role as Role, plan: planOf(w.plan).id }] : [];
+    return w ? [{ id: String(w._id), name: String(w.name), role: m.role as Role }] : [];
   });
 }
 
@@ -125,20 +121,20 @@ export async function createTeamWorkspace(userId: string, name: string): Promise
   const session = mongoClient.startSession();
   try {
     await session.withTransaction(async () => {
-      await collections.workspaces().insertOne({ _id: workspaceId, name, ownerId: userId, plan: "free", personal: false, createdAt: now, updatedAt: now }, { session });
+      await collections.workspaces().insertOne({ _id: workspaceId, name, ownerId: userId, personal: false, createdAt: now, updatedAt: now }, { session });
       await collections.memberships().insertOne({ workspaceId, userId, role: "owner", status: "active", createdAt: now }, { session });
     });
   } finally {
     await session.endSession();
   }
-  return { id: workspaceId.toHexString(), name, role: "owner", plan: "free" };
+  return { id: workspaceId.toHexString(), name, role: "owner" };
 }
 
 export function canEdit(role: Role): boolean {
   return role !== "viewer";
 }
 
-/** Owners and admins manage members, billing and workspace settings. */
+/** Owners and admins manage members and workspace settings. */
 export function canManage(role: Role): boolean {
   return role === "owner" || role === "admin";
 }

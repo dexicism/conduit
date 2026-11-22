@@ -194,26 +194,6 @@ export function startFakeApis(port = 0): Promise<FakeApis> {
         return send(res, 200, { id, status: "confirmed", htmlLink: `https://www.google.com/calendar/event?eid=${id}`, start: b.start, end: b.end, attendees: b.attendees });
       }
 
-      // --- Stripe ---------------------------------------------------------
-      if (host === "api.stripe.com") {
-        if (req.headers.authorization !== "Bearer sk_test_fake") return send(res, 401, { error: { message: "Invalid API Key provided" } });
-        if (path === "/v1/checkout/sessions" && req.method === "POST") {
-          const id = `cs_test_${randomBytes(6).toString("hex")}`;
-          return send(res, 200, { id, object: "checkout.session", url: `https://checkout.stripe.com/c/pay/${id}`, metadata: { workspaceId: b["metadata[workspaceId]"], plan: b["metadata[plan]"] } });
-        }
-        if (path === "/v1/billing_portal/sessions" && req.method === "POST") {
-          return send(res, 200, { id: "bps_test", url: `https://billing.stripe.com/p/session/test_${String(b.customer)}` });
-        }
-        if (path === "/v1/invoices") {
-          const customer = url.searchParams.get("customer");
-          return send(res, 200, {
-            object: "list",
-            data: [{ id: "in_test_1", number: "CONDUIT-0001", amount_paid: 2900, currency: "usd", status: "paid", created: 1767258000, invoice_pdf: `https://pay.stripe.com/invoice/${customer}/pdf`, hosted_invoice_url: null }],
-          });
-        }
-        return send(res, 404, { error: { message: "Unrecognized request URL" } });
-      }
-
       // --- Telegram -------------------------------------------------------
       if (host === "api.telegram.org") {
         const m = /^\/bot([^/]+)\/(\w+)$/.exec(path);

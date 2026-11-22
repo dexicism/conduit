@@ -6,7 +6,7 @@
 |-------|-----------|
 | Session API | `/api/*` uses the session cookie, is workspace-scoped through the `x-workspace-id` header or the user's default workspace, and needs CSRF protection on mutations |
 | Public API | `/v1/*` uses `Authorization: Bearer <api_key>` (`/v1/workflows` list, create, delete) |
-| Errors | `{ "error": "<code>", "message": "..." }`. Codes: `invalid_request`, `unauthorized`, `forbidden`, `not_found`, `revision_conflict`, `insufficient_credits`, `rate_limited`, `validation_failed` |
+| Errors | `{ "error": "<code>", "message": "..." }`. Codes: `invalid_request`, `unauthorized`, `forbidden`, `not_found`, `revision_conflict`, `rate_limited`, `validation_failed` |
 | Pagination | `?limit=1..100 (default 20)&cursor=` returns `{ data, nextCursor }` [V] |
 | Concurrency | Graph writes need `expectedRevision`. A mismatch returns `409 revision_conflict` with `{ currentRevision }` |
 
@@ -82,7 +82,7 @@
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/nodes?q=&category=` | Search the registry (built-in plus workspace custom nodes) |
-| GET | `/api/nodes/:type?action=` | Full descriptor: param zod→JSON schema, defaults, conditional display rules, handles, sample output, credit cost, and the expression syntax for this node |
+| GET | `/api/nodes/:type?action=` | Full descriptor: param zod→JSON schema, defaults, conditional display rules, handles, sample output, and the expression syntax for this node |
 | POST | `/api/nodes/:type/options` | Dynamic dropdowns (e.g. list a spreadsheet's tabs) using a credential |
 
 ## 5.7 Credentials (Connected Apps)
@@ -111,23 +111,19 @@ As built:
 | POST | `/api/nodes/options` | `{source: "slack.channels" \| "google.sheets", credentialId, params}` → `{options}` |
 | POST | `/hook/telegram/:path` | Telegram updates. Requires the `X-Telegram-Bot-Api-Secret-Token` set at publish (otherwise 401) |
 
-## 5.7b Workspaces, teams and billing
+## 5.7b Workspaces and teams
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/workspaces` | `{current, workspaces: [{id, name, role, plan}]}` |
+| GET | `/api/workspaces` | `{current, workspaces: [{id, name, role}]}` |
 | POST | `/api/workspaces` | `{name}` creates a team (caller is owner) and makes it current |
 | POST | `/api/workspaces/switch` | `{workspaceId}`; 403 if not a member. Sets the `conduit_ws` cookie |
 | GET / PATCH | `/api/workspace` | Current workspace; PATCH `{name}` (owner/admin) |
 | GET | `/api/workspace/members` | `{members, invitations}` (invitations for owner/admin only) |
 | PATCH / DELETE | `/api/workspace/members/:userId` | `{role}`; DELETE removes, or leaves when it's you. The last owner can't be removed or demoted |
-| POST | `/api/workspace/invitations` | `{email, role}`; emails a single-use link. Limited by the plan's member count |
+| POST | `/api/workspace/invitations` | `{email, role}`; emails a single-use link |
 | DELETE | `/api/workspace/invitations/:id` | Cancels a pending invitation |
 | POST | `/api/invitations/accept` | `{token}`; the signed-in email must match. Joins and switches to the workspace |
-| GET | `/api/billing` | Plan, plans, balances, credit history, invoices (owner/admin), `billingEnabled` |
-| POST | `/api/billing/checkout` | `{plan}` → `{url}` (Stripe Checkout). The plan changes when the webhook arrives |
-| POST | `/api/billing/portal` | → `{url}` (Stripe customer portal) |
-| POST | `/api/billing/webhook` | Stripe events; signature required |
 
 ## 5.7c Public API, webhooks, forms and MCP
 
@@ -137,7 +133,7 @@ As built:
 |---|---|---|---|
 | GET | `/api/v1/workflows` | workflows:read | Same query and response as `/api/workflows` |
 | GET | `/api/v1/workflows/:id` | workflows:read | Includes the draft |
-| POST | `/api/v1/workflows/:id/run` | executions:run | `{input}` → 202 `{executionId}`. Runs the published version from its Manual trigger (or first trigger); 409 if unpublished. Uses credits |
+| POST | `/api/v1/workflows/:id/run` | executions:run | `{input}` → 202 `{executionId}`. Runs the published version from its Manual trigger (or first trigger); 409 if unpublished |
 | GET | `/api/v1/executions` | executions:read | |
 | GET | `/api/v1/executions/:id` | executions:read | Steps with input and output |
 
@@ -191,17 +187,12 @@ Undo happens in the editor: the applied change is one undo step, and auto-save p
 | POST | `/api/custom-nodes/:id/test/trigger/:key` (poll once, or `listen` for a webhook) |
 | POST | `/api/custom-nodes/:id/publish` → version |
 
-## 5.10 Workspace, team, billing
+## 5.10 Workspace and team
 
 | Method | Path |
 |---|---|
 | GET, PATCH | `/api/workspaces/:id` |
 | GET, POST, DELETE | `/api/workspaces/:id/members`, `/invitations` |
-| GET | `/api/billing/usage` → balances per pool, concurrency, retention |
-| GET | `/api/billing/plans` |
-| POST | `/api/billing/checkout` `{plan, interval}` → provider URL |
-| POST | `/api/billing/webhook/:provider` |
-| GET | `/api/billing/invoices` (downloadable) |
 | GET, POST, DELETE | `/api/api-keys` |
 | GET, POST, DELETE | `/api/outbound-webhooks` |
 
@@ -237,4 +228,4 @@ Undo happens in the editor: the applied change is one undo step, and auto-save p
 | `save_changes` | write | Validates and saves the **draft only**. Never runs or publishes |
 | `connection_status` | read | Which apps are connected, as booleans only |
 
-The server does no inference of its own and charges no credits.
+The server does no inference of its own.

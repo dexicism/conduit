@@ -1,7 +1,7 @@
 "use client";
 
 import type { Orientation, WorkflowNode as WfNode } from "@conduit/core";
-import { creditCost, getDefinition, outputsOf, TOOL_HANDLE, type ParamIssue } from "@conduit/nodes";
+import { getDefinition, outputsOf, TOOL_HANDLE, type ParamIssue } from "@conduit/nodes";
 import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from "@xyflow/react";
 import { CircleAlertIcon, PlusIcon } from "lucide-react";
 import { memo, useEffect } from "react";
@@ -136,15 +136,6 @@ export const WorkflowNodeCard = memo(function WorkflowNodeCard({ id, data, selec
             {node.label}
           </p>
         </div>
-        {def && creditCost(def) > 0 && (
-          <span
-            data-testid="node-credits"
-            title={`${creditCost(def)} credit${creditCost(def) === 1 ? "" : "s"} per live run`}
-            className="shrink-0 rounded border px-1 text-[10px] leading-4 text-muted-foreground tabular-nums"
-          >
-            {creditCost(def)} cr
-          </span>
-        )}
         {runStep && (
           <span
             data-testid="node-run-badge"

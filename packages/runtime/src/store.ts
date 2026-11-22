@@ -26,8 +26,6 @@ export interface ExecutionDoc {
   durationMs: number | null;
   resumeAt: Date | null;
   expiresAt: Date;
-  /** Credits charged for this run's steps. */
-  creditsUsed?: number;
 }
 
 export interface StepDoc {

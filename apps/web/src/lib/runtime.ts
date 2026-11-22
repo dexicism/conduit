@@ -22,8 +22,7 @@ export function rt() {
     const options = runtimeOptionsFromEnv();
     const { integrations } = integrationsFromEnv(db, { allowPrivateNetwork: Boolean(options.allowPrivateNetwork) });
     g.__conduitRuntime = {
-      // Test runs of AI steps cost credits only on a real (paid) model.
-      runtime: createRuntime(db, options, { llm: ai.llm, billable: ai.provider === "anthropic" }, { integrations }),
+      runtime: createRuntime(db, options, { llm: ai.llm }, { integrations }),
       triggers: createTriggerService(db, mongoClient, {
         telegram:
           telegramModeFromEnv() === "polling"

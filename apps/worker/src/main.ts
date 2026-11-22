@@ -29,7 +29,7 @@ const runtime = createRuntime(db, {
   workerConcurrency: num("WORKER_CONCURRENCY"),
   codeTimeoutMs: num("CODE_TIMEOUT_MS"),
   codeMemoryMb: num("CODE_MEMORY_MB"),
-}, { llm: ai.llm, billable: ai.provider === "anthropic" }, { integrations });
+}, { llm: ai.llm }, { integrations });
 console.info(`[worker] connected apps key: ${keySource}`);
 const worker = runtime.startWorker();
 // Polling mode: Telegram rejects overlapping polls, so with several workers set TELEGRAM_POLL=0 on all but one.

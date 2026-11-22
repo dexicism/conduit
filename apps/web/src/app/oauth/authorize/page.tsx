@@ -15,7 +15,7 @@ const SCOPE_TEXT: Record<string, string> = {
   "workflows:read": "See your workflows and their steps",
   "workflows:write": "Create workflows and edit drafts (not the live versions)",
   "executions:read": "See runs and their data",
-  "executions:run": "Run workflows: free test runs, and live runs that use credits",
+  "executions:run": "Run workflows (test runs and live runs)",
 };
 
 export default async function AuthorizePage(props: PageProps<"/oauth/authorize">) {

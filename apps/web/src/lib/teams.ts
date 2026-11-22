@@ -1,5 +1,4 @@
 import "server-only";
-import { planOf } from "@conduit/core";
 import { createHash, randomBytes } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { ApiError } from "./api";
@@ -91,11 +90,6 @@ export async function invite(ws: WorkspaceContext, inviter: { id: string; name: 
   const addr = email.trim().toLowerCase();
   const members = await listMembers(ws.workspaceId);
   if (members.some((m) => m.email.toLowerCase() === addr)) throw new ApiError(400, "invalid_request", `${addr} is already a member`);
-  const pending = (await listInvitations(ws.workspaceId)).filter((i) => i.email !== addr).length;
-  const limit = planOf(ws.plan).members;
-  if (members.length + pending + 1 > limit) {
-    throw new ApiError(400, "invalid_request", `The ${planOf(ws.plan).name} plan allows ${limit} member${limit === 1 ? "" : "s"}. Upgrade to invite more.`);
-  }
   await invitations().deleteMany({ workspaceId: ws.workspaceId, email: addr, acceptedAt: null });
   const token = randomBytes(32).toString("base64url");
   const now = new Date();

@@ -286,7 +286,7 @@ export async function runExecution(opts: {
       enqueueChildren(state, node, outputs);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (node.onError === "continue" && def && !(err instanceof Error && err.name === "CreditsError")) {
+      if (node.onError === "continue" && def) {
         const items = task.items.map((it) => ({ json: { ...it.json, error: message } }));
         const outputs = { [firstOutputId(def, node)]: items };
         state.outputs[node.id] = items;

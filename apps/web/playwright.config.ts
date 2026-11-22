@@ -52,12 +52,6 @@ export default defineConfig({
       CONDUIT_ENCRYPTION_KEY: "v1:ZTJlLW9ubHktZW5jcnlwdGlvbi1rZXktMzItYnl0ZXM=",
       CONNECT_GOOGLE_CLIENT_ID: "fake-google-client-id",
       CONNECT_GOOGLE_CLIENT_SECRET: "fake-google-client-secret",
-      // Stripe test mode against the stand-in; webhooks are signed by the tests with this secret.
-      STRIPE_SECRET_KEY: "sk_test_fake",
-      STRIPE_WEBHOOK_SECRET: "whsec_e2e_secret",
-      STRIPE_PRICE_STARTER: "price_starter",
-      STRIPE_PRICE_PRO: "price_pro",
-      STRIPE_PRICE_MAX: "price_max",
     },
     },
   ],

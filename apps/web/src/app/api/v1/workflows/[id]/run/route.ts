@@ -9,7 +9,7 @@ const schema = z.object({ input: z.record(z.string(), z.unknown()).default({}) }
 
 /**
  * Public API: runs the published version (`executions:run`). Starts from its Manual
- * trigger (or the first trigger) with `input` as the trigger's item. Live runs use credits.
+ * trigger (or the first trigger) with `input` as the trigger's item.
  */
 export const POST = route<RouteContext<"/api/v1/workflows/[id]/run">>(async (req, ctx) => {
   const { workspace } = await requireApiKey(req, "executions:run");

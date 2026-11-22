@@ -10,7 +10,7 @@ export default async function SettingsPage() {
     <SettingsView
       key={workspace.workspaceId.toHexString()}
       me={user.id}
-      workspace={{ id: workspace.workspaceId.toHexString(), name: workspace.workspaceName, role: workspace.role, personal: workspace.personal, plan: workspace.plan }}
+      workspace={{ id: workspace.workspaceId.toHexString(), name: workspace.workspaceName, role: workspace.role, personal: workspace.personal }}
     />
   );
 }

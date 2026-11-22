@@ -36,8 +36,8 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const ROLE_HELP: Record<string, string> = {
-  owner: "Everything, including billing and owners",
-  admin: "Members, billing and all workflows",
+  owner: "Everything, including owners",
+  admin: "Members and all workflows",
   editor: "Build, run and publish workflows",
   viewer: "View workflows and runs",
 };
@@ -46,7 +46,7 @@ export function SettingsView({
   workspace,
   me,
 }: {
-  workspace: { id: string; name: string; role: string; personal: boolean; plan: string };
+  workspace: { id: string; name: string; role: string; personal: boolean };
   me: string;
 }) {
   const router = useRouter();

@@ -8,7 +8,7 @@ What's in it:
 - **Execution engine:** test runs with live output, webhook / schedule / manual / form / chat / error / sub-workflow triggers, publishing, run history, sandboxed Code steps (isolated-vm), SSRF-safe HTTP steps.
 - **AI:** an Agent with tools and memory, Classify, Sentiment, Moderate and Extract steps, and a chat Builder that drafts workflows on the canvas. Runs on a free local model through Ollama, or on Claude if you have a key.
 - **Apps:** Telegram, Gmail, Google Sheets, Google Calendar, Google Drive, Slack, WhatsApp Business, PostgreSQL and SMTP. Every app action also works as an agent tool. Accounts are stored encrypted.
-- **Teams and billing:** workspaces with invites and roles, per-step credits, plans, Stripe subscriptions.
+- **Teams:** workspaces with invites and roles (owner, admin, editor, viewer). No plans, no credits, no limits: everything is free.
 - **Platform:** API keys and a public REST API (`/api/v1`), signed outgoing webhooks, an MCP server with OAuth 2.1 so AI assistants can read and edit workflows, two-step sign-in.
 
 ## Quick start on Windows (one click)
@@ -49,7 +49,6 @@ On first run, create `apps/web/.env.local` from [apps/web/.env.example](apps/web
 - **Free, on your own computer (Ollama):** install [Ollama](https://ollama.com), run `ollama pull qwen3:8b`, and set `AI_PROVIDER=ollama`.
   - Every AI step and the Builder use that one model (`OLLAMA_MODEL`), whatever model the step names.
   - It needs about 8 GB of free memory. It's slower than Claude and makes more mistakes building workflows.
-  - Test runs of AI steps don't use credits, since a local model costs nothing to run. Live runs use credits as usual.
   - Other models that handle tools: `llama3.1:8b`, `qwen3:14b` (better, needs about 16 GB).
   - **Speed and quality (measured on an RTX 3050 laptop GPU with 4 GB, `qwen3:8b`):** a simple answer or tool call takes 4–8 s after the model loads (about 25 s the first time). Building a 3-step workflow with the AI Builder worked. A 4-step request took about 3.5 minutes and added only the first step, though the model's reply claimed all four. The Builder panel's change label lists the steps that were really added, so check it.
   - **Ollama crashes with a "CUDA error" on some NVIDIA laptop GPUs:** run `setx OLLAMA_LLM_LIBRARY cuda_v12`, quit Ollama from the system tray, and open it again from the Start menu.
@@ -68,15 +67,9 @@ On first run, create `apps/web/.env.local` from [apps/web/.env.example](apps/web
 
 **Connected apps.** Saved accounts are encrypted with `CONDUIT_ENCRYPTION_KEY`. It's required in production and must be the same on the web app and every worker. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Development creates one in `.data/encryption.key`.
 
-- **Google (Gmail, Sheets):** set `CONNECT_GOOGLE_CLIENT_ID` and `CONNECT_GOOGLE_CLIENT_SECRET`, and add `{BETTER_AUTH_URL}/api/credentials/oauth/callback` as a redirect URI. Enable the Gmail and Sheets APIs in the Google Cloud project. Without these, Google steps are hidden.
+- **Google (Gmail, Sheets, Calendar, Drive):** set `CONNECT_GOOGLE_CLIENT_ID` and `CONNECT_GOOGLE_CLIENT_SECRET`, and add `{BETTER_AUTH_URL}/api/credentials/oauth/callback` as a redirect URI. Enable the Gmail, Sheets, Calendar and Drive APIs in the Google Cloud project. Without these, Google steps are hidden.
 - **Telegram triggers:** in webhook mode (the default when `PUBLIC_URL` isn't localhost), Telegram must be able to reach `PUBLIC_URL` over public HTTPS. Polling mode needs no public address.
 - **Databases and SMTP:** private and internal addresses are blocked unless `HTTP_ALLOW_PRIVATE_NETWORK=1`.
-
-**Billing (Stripe).** Set these to offer paid plans:
-- `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`
-- `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO` and `STRIPE_PRICE_MAX` (monthly subscription price IDs)
-
-Point a Stripe webhook at `{BETTER_AUTH_URL}/api/billing/webhook` with these events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted` and `invoice.paid`. Without these settings, everyone stays on the Free plan and upgrade buttons are hidden.
 
 **Google and GitHub sign-in.** Set the client ID and secret for either provider in `.env.local` and its button appears. Without them the button is hidden, so it is never a dead control.
 

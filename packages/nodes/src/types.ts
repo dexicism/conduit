@@ -171,8 +171,6 @@ export interface NodeDefinition {
   toolPort?: boolean;
   /** Needs a configured AI model to run (hidden when AI is off). */
   requiresAi?: boolean;
-  /** Credits charged each time the step runs. Defaults by category (see creditCost). */
-  credits?: number;
   /** App this step talks to (see APP_DEFINITIONS). */
   app?: string;
   /** App action that can also be attached to an agent as a tool. */

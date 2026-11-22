@@ -18,8 +18,7 @@ These follow the Auth.js MongoDB adapter shape. `verification_tokens` holds the 
 
 ## workspaces (teams )
 ```ts
-{ _id, name, ownerId, plan: 'free'|'starter'|'pro'|'max',
-  billing: { provider, customerId, subscriptionId, status, periodEnd, interval: 'month'|'year' } }
+{ _id, name, ownerId, personal }
 ```
 
 ## memberships
@@ -102,9 +101,9 @@ Indexes:
   status: 'queued'|'running'|'waiting'|'success'|'failed'|'canceled',
   startedAt, finishedAt?, durationMs?,                    //  webhook payload fields
   error?: { nodeId, message, stack? },
-  creditsUsed: number, parentExecutionId?,
+  parentExecutionId?,
   resumeAt?, engineState?: Binary,                        // for Wait / resumable runs
-  expiresAt: Date }                                       //  plan log retention (7/21/60 days)
+  expiresAt: Date }                                       //  log retention (EXECUTION_RETENTION_DAYS, 7 by default)
 ```
 Indexes:
 - `{workspaceId, startedAt:-1}`
@@ -116,7 +115,7 @@ Kept separate so execution documents stay small.
 ```ts
 { _id, executionId, workspaceId, nodeId, attempt, status, startedAt, durationMs,
   inputPreview, output: { [handle]: Item[] } | { ref: 's3://...' },   // large outputs offloaded
-  logs: string[], error?, credits }
+  logs: string[], error? }
 ```
 Indexes:
 - `{executionId, startedAt}`
@@ -153,18 +152,6 @@ type CustomNodeSpec = {
 }
 ```
 
-## credit_ledger 
-```ts
-{ _id, workspaceId, kind: 'grant'|'debit'|'expire'|'refund',
-  pool: 'plan'|'lifetime'|'builder',      //  separate builder pool; plan used before lifetime
-  amount, balanceAfter, executionId?, nodeId?, reason, createdAt }
-```
-
-## credit_balances
-The hot counters.
-```ts
-{ _id: workspaceId, plan: number, lifetime: number, builder: number, periodResetAt }
-```
 
 ## api_keys
 ```ts
@@ -185,7 +172,7 @@ grants:  { _id, clientId, userId, workspaceId, scopes[], codeHash, codeChallenge
 
 ## builder_conversations
 ```ts
-{ _id, workflowId, workspaceId, messages: [{ role, content, changeSetId?, createdAt }], creditsUsed }
+{ _id, workflowId, workspaceId, messages: [{ role, content, changeSetId?, createdAt }] }
 ```
 
 ## agent_memory

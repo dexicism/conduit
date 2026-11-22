@@ -3,14 +3,13 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { ApiError } from "./api";
 import { collections, db } from "./db";
-import { planOf } from "@conduit/core";
 import type { WorkspaceContext } from "./workspaces";
 
 /**
  * Workspace API keys for the public API (v1) and MCP clients.
  * Format `cdt_<8-char prefix>_<secret>`. Only a SHA-256 hash is stored (the key is
  * 256 bits of randomness, so a slow hash adds nothing). Keys never reach member,
- * billing or credential routes: those use `requireApiContext`, which rejects keys.
+ * credential routes: those use `requireApiContext`, which rejects keys.
  */
 
 export const API_SCOPES = ["workflows:read", "workflows:write", "executions:read", "executions:run"] as const;
@@ -106,7 +105,7 @@ export async function resolveApiKey(token: string): Promise<KeyContext | null> {
   // Last-used is advisory: at most one write per minute per key.
   void keys().updateOne({ _id: doc._id, $or: [{ lastUsedAt: null }, { lastUsedAt: { $lt: new Date(Date.now() - 60_000) } }] }, { $set: { lastUsedAt: new Date() } });
   return {
-    workspace: { workspaceId: doc.workspaceId, workspaceName: String(ws.name), role: "editor", plan: planOf(ws.plan).id, personal: ws.personal !== false },
+    workspace: { workspaceId: doc.workspaceId, workspaceName: String(ws.name), role: "editor", personal: ws.personal !== false },
     scopes: doc.scopes,
     keyId: doc._id.toHexString(),
     actorId: `apikey:${doc._id.toHexString()}`,

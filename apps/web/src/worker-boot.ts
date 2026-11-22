@@ -14,7 +14,7 @@ export function bootWorker(): Promise<void> {
     const db = client.db(process.env.MONGODB_DB ?? "conduit");
     const options = runtimeOptionsFromEnv();
     const { integrations } = integrationsFromEnv(db, { allowPrivateNetwork: Boolean(options.allowPrivateNetwork) });
-    const runtime = createRuntime(db, options, { llm: ai.llm, billable: ai.provider === "anthropic" }, { integrations });
+    const runtime = createRuntime(db, options, { llm: ai.llm }, { integrations });
     console.info(`[worker] AI provider: ${ai.provider}`);
     runtime.startWorker();
     if (telegramModeFromEnv() === "polling") {

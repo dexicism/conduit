@@ -23,7 +23,6 @@ export interface WorkspaceOption {
   id: string;
   name: string;
   role: string;
-  plan: string;
 }
 
 async function post(path: string, body: unknown) {
@@ -59,7 +58,7 @@ export function WorkspaceSwitcher({ workspaces, currentId }: { workspaces: Works
           <span className="min-w-0 text-left">
             <span className="block truncate text-sm font-medium">{current?.name ?? "Workspace"}</span>
             <span className="block truncate text-xs text-muted-foreground capitalize">
-              {current ? `${current.plan} plan · ${current.role}` : ""}
+              {current ? current.role : ""}
             </span>
           </span>
           <ChevronsUpDownIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -116,7 +115,7 @@ function CreateTeamForm({ onClose }: { onClose: () => void }) {
     >
       <DialogHeader>
         <DialogTitle>Create a team</DialogTitle>
-        <DialogDescription>A shared workspace with its own workflows, accounts, plan and credits. You can invite people next.</DialogDescription>
+        <DialogDescription>A shared workspace with its own workflows and accounts. You can invite people next.</DialogDescription>
       </DialogHeader>
       <div className="grid gap-1.5">
         <Label htmlFor="team-name">Team name</Label>

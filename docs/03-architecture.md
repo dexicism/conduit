@@ -30,7 +30,7 @@ The design decisions behind Conduit, and how each part was built.
  apps/hooks (optional) public webhook ingress; can live inside apps/web at first
 ```
 
-**Why a separate worker.** Workflows run for seconds to days (the Wait node), need concurrency caps per plan, and must not run inside serverless request lifetimes. Next.js handles UI and API only. All execution runs in the long-lived worker.
+**Why a separate worker.** Workflows run for seconds to days (the Wait node), need concurrency caps per workspace, and must not run inside serverless request lifetimes. Next.js handles UI and API only. All execution runs in the long-lived worker.
 
 ## 3.2 Monorepo layout (pnpm + Turborepo)
 
@@ -64,7 +64,7 @@ packages/
 | Forms | react-hook-form plus zod | One zod schema drives node config forms, the API, and Builder validation |
 | Code editor | Monaco (`@monaco-editor/react`) | Code node and Node Builder; JS IntelliSense |
 | DB | MongoDB 7 (replica set for transactions) with Mongoose | Fits a document-shaped workflow graph |
-| Queue | BullMQ on Redis | Delayed jobs (Wait and Schedule), concurrency per group (plan limits), retries |
+| Queue | BullMQ on Redis | Delayed jobs (Wait and Schedule), concurrency per group, retries |
 | Sandbox | **isolated-vm** | A real V8 isolate with memory and time limits. `vm2` is deprecated or insecure, and Node `vm` is not a security boundary |
 | Auth | Auth.js v5 (next-auth): Google, GitHub, Email (OTP via custom provider); otplib TOTP for 2FA | The standard choice |
 | Email | Resend (or SMTP via Nodemailer) | OTP codes and invoices |
@@ -72,7 +72,6 @@ packages/
 | MCP | `@modelcontextprotocol/sdk` (Streamable HTTP) | The standard SDK |
 | Files | S3-compatible (Cloudflare R2 or MinIO locally) | Generated images, audio, uploads |
 | Realtime | Server-Sent Events from `/api/executions/:id/stream`, fed by Redis pub/sub | One-way live run output. Simpler than websockets on Vercel-like hosts |
-| Payments | Provider-agnostic interface. Stripe first; Midtrans or Razorpay adapters later | Business decision pending |
 | Observability | pino logs, OpenTelemetry traces, Sentry | |
 | Tests | Vitest (unit), Playwright (E2E), testcontainers (Mongo and Redis) | |
 
@@ -232,57 +231,26 @@ Known limitations:
 
 **Deferred to 5b:** WhatsApp Cloud API, Google Calendar and Drive, MySQL, S3/R2. Each needs either a sandbox account or more driver work.
 
-### 3.3.6 Plans, credits and teams as built
+### 3.3.6 Teams as built
 
-**Plans** (`packages/core/src/plans.ts`)
-
-| Plan | Credits | AI Builder credits | Runs at once | Run logs | Members |
-|---|---|---|---|---|---|
-| Free | 500 | 5 | 2 | 3 days | 1 |
-| Starter | 3,000 | 10 | 4 | 7 days | 3 |
-| Pro | 30,000 | 50 | 12 | 21 days | 10 |
-| Max | 200,000 | 250 | 32 | 60 days | 50 |
-
-Prices are ours, in USD and for display only. Billing uses Stripe price IDs.
-
-**Credits** (`packages/runtime/src/credits.ts`)
-- A balance document holds three pools: `plan`, `lifetime` and `builder`, plus a ledger.
-- Debits are single conditional updates (`$gte` then `$inc`), with a compare-and-set when a debit spans two pools, so concurrent runs can't overspend.
-- The plan pool refills lazily when a 30-day period ends, and immediately on a plan change.
-- Costs are per step (`creditCost`):
-  - 0: triggers, flow, transform, Set, Respond and tools
-  - 1: HTTP, code and app steps
-  - 2: AI steps
-  - 5: the AI Agent
-- Credits are charged in the new `beforeExecute` hook. Running out throws a `CreditsError`, which "continue on error" can't swallow.
-- Test runs are free. The exception is AI steps when the model is billable (Anthropic, not the test model).
-- The Builder spends one Builder credit per message on a paid model, refunded if the call fails.
+Everything is free: there are no plans, credits or usage limits. Run logs are kept for `EXECUTION_RETENTION_DAYS` (7 by default) and each workspace runs up to `WORKSPACE_CONCURRENCY` workflows at once (4 by default).
 
 **Teams**
 - The current workspace is the `conduit_ws` cookie. Membership is re-checked on every page and API request, and the call falls back to the user's first workspace if the check fails.
 - Invitations store a SHA-256 hash of a random token, expire after 7 days, are single use, and require the signed-in email to match.
 - Roles:
   - owner: everything
-  - admin: members and billing; can't create owners
+  - admin: members; can't create owners
   - editor: build, run, publish
   - viewer: read only
-- A workspace always keeps at least one owner. The plan limits how many members it can have.
+- A workspace always keeps at least one owner. There's no member limit.
 
-**Billing** (`apps/web/src/lib/billing.ts`, Stripe REST, no SDK)
-- Checkout and portal sessions are created on Stripe.
-- The plan changes only from webhooks:
-  - `checkout.session.completed`
-  - `customer.subscription.updated` / `.deleted`
-  - `invoice.paid` (renewal refill)
-- Signatures are checked as `t=…,v1=HMAC-SHA256(secret, "t.body")` within 5 minutes, using a timing-safe compare.
-- Event ids are stored for deduplication. A failed event is un-recorded so Stripe's retry runs it again.
-- Upgrade controls appear only when `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and the three `STRIPE_PRICE_*` are set.
 
 ### 3.3.7 Platform and security as built
 
 **API keys** look like `cdt_<prefix>_<secret>`:
 - Only a SHA-256 hash is stored, with a unique prefix for lookup.
-- Keys have scopes and authenticate only `/api/v1/*` and `/api/mcp`. Session routes don't accept them, so they never reach members, billing or credentials.
+- Keys have scopes and authenticate only `/api/v1/*` and `/api/mcp`. Session routes don't accept them, so they never reach members or credentials.
 
 **Outbound webhooks** (`packages/runtime/src/outbound.ts`):
 - Deliveries are queued in Mongo and claimed with a lease.
@@ -317,14 +285,13 @@ Prices are ours, in USD and for display only. Billing uses Stripe price IDs.
 3. Each node step:
    - resolves its parameters per item (expression engine)
    - runs the node's `execute()`
-   - persists a `StepRun` (input sample, output, error, timings, credits)
+   - persists a `StepRun` (input sample, output, error, timings)
    - publishes a progress event to Redis
 4. **Wait:** the engine persists its state, schedules a delayed BullMQ job, and releases the worker slot. Long waits cost nothing while idle.
 5. **Errors:** each node has a setting, `stop` (default), `continue`, or `continue (error output)`. When an execution fails, any workflow with an Error trigger linked to it is enqueued.
 6. **Respond node:** resolves the pending HTTP response of a synchronous webhook (via Redis correlation ID and a timeout).
 7. **Execute Node:** runs a child execution and awaits its result (with a depth limit to prevent recursion bombs).
-8. **Concurrency:** a BullMQ group per workspace, sized to the plan's concurrent-execution limit.
-9. **Credits:** debit per successful node step for production runs. Test runs debit only paid AI calls. Atomic `$inc` with a guard (`credits >= cost`). If funds run out, the run fails with `insufficient_credits`.
+8. **Concurrency:** a BullMQ group per workspace, sized to the workspace concurrency limit.
 
 **Expression engine (`packages/core/expr`):**
 - **Parser** recognizes `${[...path]}` bracket paths, `={{ AI(...) }}` agent-fill placeholders, and `{{ ... }}` (a legacy alias).
@@ -348,7 +315,7 @@ Prices are ours, in USD and for display only. Billing uses Stripe price IDs.
   - It never calls run or publish.
   - Output is a change set (`nodes`, `updates`, `deleted`) applied atomically with `expectedRevision`. The editor shows a diff overlay and one-click undo.
   - The system prompt is written by us from first principles.
-- **MCP server:** exposes the same Builder tools to external chats (the external model does the inference) and does not charge credits. OAuth scopes are `workflows:read`, `workflows:write` and `workflows:create`.
+- **MCP server:** exposes the same Builder tools to external chats (the external model does the inference). OAuth scopes are `workflows:read`, `workflows:write` and `workflows:create`.
 
 ## 3.6 Security
 

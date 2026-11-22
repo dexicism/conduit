@@ -585,21 +585,3 @@ export function nodeIssues(graph: WorkflowGraph, node: WorkflowNode): ParamIssue
   return issues;
 }
 
-/**
- * Credits a step costs per run. Triggers, flow control, data transforms and tools
- * (paid for by their agent) are free; calls out (HTTP, code, apps) cost 1; AI costs more.
- */
-export function creditCost(def: NodeDefinition): number {
-  if (def.credits !== undefined) return def.credits;
-  switch (def.category) {
-    case "trigger":
-    case "flow":
-    case "transform":
-    case "tool":
-      return 0;
-    case "ai":
-      return def.type === "ai.agent" ? 5 : 2;
-    default:
-      return def.type === "core.set" || def.type === "core.respond" ? 0 : 1;
-  }
-}

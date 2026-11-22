@@ -206,8 +206,3 @@ export type Executor = (ctx: ExecContext) => Promise<ExecResult> | ExecResult;
 export class StepError extends Error {
   override name = "StepError";
 }
-
-/** The workspace is out of credits. Never swallowed by a step's "continue on error". */
-export class CreditsError extends StepError {
-  override name = "CreditsError";
-}

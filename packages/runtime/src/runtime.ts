@@ -1,8 +1,7 @@
-import { FINAL_STATUSES, planOf, workflowGraphSchema, type ExecutionMode, type WorkflowGraph } from "@conduit/core";
-import { CreditsError, initialState, nextScheduleRun, runExecution, StepError, type EngineServices, type Item, type LlmService } from "@conduit/engine";
+import { FINAL_STATUSES, workflowGraphSchema, type ExecutionMode, type WorkflowGraph } from "@conduit/core";
+import { initialState, nextScheduleRun, runExecution, StepError, type EngineServices, type Item, type LlmService } from "@conduit/engine";
 import { createMemoryService, ensureMemoryIndexes } from "./llm";
-import { creditCost, getDefinition } from "@conduit/nodes";
-import { createCredits, ensureCreditIndexes } from "./credits";
+import { getDefinition } from "@conduit/nodes";
 import { createOutbound } from "./outbound";
 import { ObjectId, type Db, type Filter } from "mongodb";
 import { createHttpClient } from "./net";
@@ -12,7 +11,7 @@ import { collections, ensureRuntimeIndexes, toStepDoc, type ExecutionDoc, type J
 
 export interface RuntimeOptions {
   allowPrivateNetwork: boolean;
-  /** Days to keep execution logs (plan retention). */
+  /** Days to keep execution logs. */
   retentionDays: number;
   /** Max concurrently running executions per workspace. */
   workspaceConcurrency: number;
@@ -75,14 +74,10 @@ export function resolveRuntimeOptions(options: Partial<RuntimeOptions> = {}): Ru
 export function createRuntime(
   db: Db,
   options: Partial<RuntimeOptions> = {},
-  /** `billable`: AI steps cost credits even in test runs (false for the free test model). */
-  ai: { llm?: LlmService; billable?: boolean } = {},
+  ai: { llm?: LlmService } = {},
   apps: { integrations?: Integrations } = {},
 ) {
   const opts = resolveRuntimeOptions(options);
-  // An explicit concurrency option overrides the plan's limit (ops escape hatch).
-  const concurrencyOverride = options.workspaceConcurrency;
-  const credits = createCredits(db);
   // Outbound webhooks need the vault (their signing secrets are encrypted).
   const outbound = apps.integrations ? createOutbound(db, { vault: apps.integrations.vault, http: createHttpClient({ allowPrivateNetwork: opts.allowPrivateNetwork }) }) : null;
   const c = collections(db);
@@ -90,15 +85,10 @@ export function createRuntime(
   const runCode = createSandbox({ memoryLimitMb: opts.codeMemoryMb, timeoutMs: opts.codeTimeoutMs });
   let indexes: Promise<void> | null = null;
   const ready = () =>
-    (indexes ??= Promise.all([ensureRuntimeIndexes(db), ensureMemoryIndexes(db), ensureCredentialIndexes(db), ensureCreditIndexes(db)])
+    (indexes ??= Promise.all([ensureRuntimeIndexes(db), ensureMemoryIndexes(db), ensureCredentialIndexes(db)])
       .then(() => undefined)
       .catch((e) => ((indexes = null), Promise.reject(e))));
-  /** The workspace's plan (limits); workspaces without a record use the free plan. */
-  async function planFor(workspaceId: ObjectId) {
-    const ws = await c.workflows.db.collection("workspaces").findOne({ _id: workspaceId }, { projection: { plan: 1 } });
-    return planOf(ws?.plan);
-  }
-  const expiry = async (workspaceId: ObjectId) => new Date(Date.now() + (await planFor(workspaceId)).retentionDays * 86_400_000);
+  const expiry = () => new Date(Date.now() + opts.retentionDays * 86_400_000);
 
   async function createExecution(input: StartInput, enqueue: boolean): Promise<ObjectId> {
     await ready();
@@ -127,7 +117,7 @@ export function createRuntime(
       finishedAt: null,
       durationMs: null,
       resumeAt: null,
-      expiresAt: await expiry(input.workspaceId),
+      expiresAt: expiry(),
     };
     await c.executions.insertOne(doc);
     if (enqueue) await enqueueJob(doc._id, doc.workspaceId, now);
@@ -253,20 +243,11 @@ export function createRuntime(
     const exp = doc.expiresAt;
     // Secret values opened during this run; masked in everything stored.
     const secrets = new Set<string>();
-    let creditsUsed = 0;
     const raw = await runExecution({
       graph: doc.graph,
       state: doc.state,
       services: servicesFor(doc, secrets),
       hooks: {
-        beforeExecute: async (node, def) => {
-          const cost = creditCost(def);
-          // Test runs are free, except AI steps on a billable model.
-          if (!cost || (doc.isTest && !(def.requiresAi && ai.billable))) return;
-          const ok = await credits.debit(doc.workspaceId, cost, { reason: `${def.name} step`, executionId: doc._id, nodeId: node.id });
-          if (!ok) throw new CreditsError("Out of credits. Upgrade your plan or wait for the next period to keep running workflows.");
-          creditsUsed += cost;
-        },
         onStep: async (r) => {
           const safe = { ...r, input: redactValue(r.input, secrets), output: redactValue(r.output, secrets), logs: redactValue(r.logs, secrets) };
           if (r.error) safe.error = redactText(r.error, secrets);
@@ -286,7 +267,6 @@ export function createRuntime(
     const latest = await c.executions.findOne({ _id: id }, { projection: { status: 1 } });
     if (latest?.status === "canceled") return (await c.executions.findOne({ _id: id }))!;
 
-    if (creditsUsed) await c.executions.updateOne({ _id: id }, { $inc: { creditsUsed } });
     const now = new Date();
     if (outcome.status === "waiting") {
       await c.executions.updateOne(
@@ -322,7 +302,6 @@ export function createRuntime(
           startedAt: final.startedAt.toISOString(),
           finishedAt: final.finishedAt?.toISOString() ?? null,
           durationMs: final.durationMs,
-          creditsUsed: final.creditsUsed ?? 0,
           error: final.error,
         })
         .catch((err) => console.error("[runtime] could not queue webhooks", err));
@@ -352,7 +331,7 @@ export function createRuntime(
   async function handleJob(job: JobDoc) {
     // Workspace concurrency: release the job for later if the workspace is at its limit.
     const running = await c.executions.countDocuments({ workspaceId: job.workspaceId, status: "running" });
-    const limit = concurrencyOverride ?? (await planFor(job.workspaceId)).concurrency;
+    const limit = opts.workspaceConcurrency;
     if (running >= limit) {
       await c.jobs.updateOne({ _id: job._id }, { $set: { status: "queued", lockedUntil: null, runAt: new Date(Date.now() + 1000) } });
       return;
@@ -460,7 +439,6 @@ export function createRuntime(
   return {
     options: opts,
     collections: c,
-    credits,
     outbound,
     ready,
     createExecution,
