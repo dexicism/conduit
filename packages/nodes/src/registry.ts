@@ -6,7 +6,7 @@ import { errorTrigger, manualTrigger, scheduleTrigger, subworkflowTrigger, webho
 import { agentNode, classifyNode, extractNode, moderateNode, sentimentNode } from "./definitions/ai";
 import { appActionTool, calculatorTool, codeTool, httpTool, subAgentTool, thinkTool, workflowTool } from "./definitions/tools";
 import { APP_ACTION_DEFINITIONS, telegramTrigger } from "./definitions/apps";
-import { formTrigger } from "./definitions/triggers";
+import { chatTrigger, formTrigger } from "./definitions/triggers";
 import { AGENT_HANDLE, TOOL_HANDLE } from "./types";
 import type {
   Assignment,
@@ -30,6 +30,7 @@ export const NODE_DEFINITIONS: readonly NodeDefinition[] = [
   errorTrigger,
   telegramTrigger,
   formTrigger,
+  chatTrigger,
   agentNode,
   classifyNode,
   extractNode,

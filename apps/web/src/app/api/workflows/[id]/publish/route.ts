@@ -16,7 +16,7 @@ async function triggersView(workflowId: ObjectId) {
     nodeId: t.nodeId,
     kind: t.kind,
     method: t.method,
-    url: t.kind === "webhook" ? `${env.PUBLIC_URL}/hook/${t.path}` : t.kind === "form" ? `${env.PUBLIC_URL}/form/${t.path}` : undefined,
+    url: t.kind === "webhook" ? `${env.PUBLIC_URL}/hook/${t.path}` : t.kind === "form" ? `${env.PUBLIC_URL}/form/${t.path}` : t.kind === "chat" ? `${env.PUBLIC_URL}/chat/${t.path}` : undefined,
     nextRunAt: t.nextRunAt?.toISOString(),
   }));
 }

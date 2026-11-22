@@ -229,3 +229,41 @@ export const formTrigger: NodeDefinition = {
   ],
   outputSample: { fields: { name: "Ana", email: "ana@example.com" }, submittedAt: "2026-01-01T09:00:00.000Z" },
 };
+
+export const chatTrigger: NodeDefinition = {
+  type: "trigger.chat",
+  version: 1,
+  name: "Chat",
+  description: "Start when someone sends a message on a hosted chat page. Publish to get its public link.",
+  category: "trigger",
+  icon: "MessagesSquare",
+  color: "amber",
+  keywords: ["chat", "chatbot", "message", "support", "assistant", "conversation", "widget"],
+  inputs: [],
+  outputs: [{ id: "main" }],
+  initParameters: () => ({ path: randomSlug() }),
+  fields: [
+    { kind: "string", name: "title", label: "Chat title", required: true, default: "Chat with us", expression: false },
+    {
+      kind: "string",
+      name: "welcomeMessage",
+      label: "Welcome message",
+      default: "Hi! How can I help?",
+      multiline: true,
+      expression: false,
+      description: "Shown before the visitor writes anything.",
+    },
+    { kind: "string", name: "placeholder", label: "Input hint", default: "Type a message…", expression: false },
+    {
+      kind: "string",
+      name: "path",
+      label: "Link path",
+      required: true,
+      expression: false,
+      format: "path-segment",
+      description:
+        "The chat lives at /chat/<path> once published. The reply is the Respond step's body if you add one, otherwise the last step's output (e.g. an AI Agent's answer). Use sessionId as the agent's conversation ID to give it memory.",
+    },
+  ],
+  outputSample: { message: "Do you ship to Pune?", sessionId: "c0ffee5e55i0n1d2", sentAt: "2026-01-01T09:00:00.000Z" },
+};

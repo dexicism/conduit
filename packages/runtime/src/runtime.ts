@@ -59,6 +59,7 @@ export function triggerItemsFor(type: string, now: Date, extra?: Record<string, 
     case "trigger.error":
     case "trigger.telegram":
     case "trigger.form":
+    case "trigger.chat":
       return [{ json: getDefinition(type)!.outputSample }];
     default:
       return [{ json: { startedAt: now.toISOString() } }];

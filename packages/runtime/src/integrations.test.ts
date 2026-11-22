@@ -591,3 +591,28 @@ describe("Telegram polling mode", () => {
     }
   }, 30_000);
 });
+
+describe("Chat trigger publishing", () => {
+  it("publishes a chat link, refuses the same link in another workflow, and removes it on unpublish", async () => {
+    const ws = new ObjectId();
+    const triggers = createTriggerService(db, client);
+    const path = `chat-${Date.now()}`;
+    const g = graph([
+      { id: "chat", type: "trigger.chat", parameters: { path }, to: { main: ["set"] } },
+      { id: "set", type: "core.set", parameters: { assignments: [{ id: "a", name: "reply", value: "hi", type: "string" }] } },
+    ]);
+    const [a, b] = [new ObjectId(), new ObjectId()];
+    for (const _id of [a, b]) {
+      await db.collection("workflows").insertOne({ _id, workspaceId: ws, name: `chat ${_id}`, revision: 1, draft: g, publishedVersionId: null, archivedAt: null });
+    }
+    const pub = await triggers.publish(ws, a, userId);
+    expect(pub.triggers).toMatchObject([{ kind: "chat", nodeId: "chat", path }]);
+    expect((await triggers.findChat(path))?.workflowId).toEqual(a);
+    await expect(triggers.publish(ws, b, userId)).rejects.toThrow(/already uses this chat link/);
+    // Publishing again (a new version) keeps the same link.
+    await triggers.publish(ws, a, userId);
+    expect((await triggers.findChat(path))?.workflowId).toEqual(a);
+    await triggers.unpublish(ws, a);
+    expect(await triggers.findChat(path)).toBeNull();
+  });
+});

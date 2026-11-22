@@ -42,8 +42,8 @@ export function publishIssues(graph: WorkflowGraph): Array<{ nodeId?: string; me
   return issues;
 }
 
-const LIVE_TYPES = ["trigger.webhook", "trigger.schedule", "trigger.telegram", "trigger.form"];
-const LIVE_KINDS: TriggerDoc["kind"][] = ["webhook", "schedule", "telegram", "form"];
+const LIVE_TYPES = ["trigger.webhook", "trigger.schedule", "trigger.telegram", "trigger.form", "trigger.chat"];
+const LIVE_KINDS: TriggerDoc["kind"][] = ["webhook", "schedule", "telegram", "form", "chat"];
 
 function liveTriggers(graph: WorkflowGraph) {
   return graph.nodes.filter((n) => !n.disabled && LIVE_TYPES.includes(n.type));
@@ -100,6 +100,7 @@ export function createTriggerService(db: Db, client: MongoClient, hooks: Trigger
       const base = { workspaceId, workflowId, versionId, nodeId: n.id, createdAt: now };
       if (n.type === "trigger.webhook") return { ...base, kind: "webhook", method: String(n.parameters.method ?? "POST"), path: String(n.parameters.path) };
       if (n.type === "trigger.form") return { ...base, kind: "form", method: "POST", path: String(n.parameters.path) };
+      if (n.type === "trigger.chat") return { ...base, kind: "chat", method: "POST", path: String(n.parameters.path) };
       if (n.type === "trigger.telegram") {
         return {
           ...base,
@@ -140,6 +141,12 @@ export function createTriggerService(db: Db, client: MongoClient, hooks: Trigger
       if (new Set(formPaths).size !== formPaths.length) throw new PublishError("Two forms use the same link path", [], true);
       const taken = await c.triggers.findOne({ kind: "form", path: { $in: formPaths }, workflowId: { $ne: workflowId } });
       if (taken) throw new PublishError("Another workflow already uses this form link. Change the path and publish again.", [], true);
+    }
+    const chatPaths = docs.filter((d) => d.kind === "chat").map((d) => d.path!);
+    if (chatPaths.length) {
+      if (new Set(chatPaths).size !== chatPaths.length) throw new PublishError("Two chats use the same link path", [], true);
+      const taken = await c.triggers.findOne({ kind: "chat", path: { $in: chatPaths }, workflowId: { $ne: workflowId } });
+      if (taken) throw new PublishError("Another workflow already uses this chat link. Change the path and publish again.", [], true);
     }
     if (new Set(paths).size !== paths.length) throw new PublishError("Two webhook triggers use the same path", [], true);
 
@@ -198,6 +205,10 @@ export function createTriggerService(db: Db, client: MongoClient, hooks: Trigger
     return c.triggers.findOne({ kind: "form", path });
   }
 
+  function findChat(path: string): Promise<TriggerDoc | null> {
+    return c.triggers.findOne({ kind: "chat", path });
+  }
+
   function findTelegram(path: string): Promise<TriggerDoc | null> {
     return c.triggers.findOne({ kind: "telegram", path });
   }
@@ -247,7 +258,7 @@ export function createTriggerService(db: Db, client: MongoClient, hooks: Trigger
     await c.triggers.deleteMany({ workflowId, kind: "webhook-test" });
   }
 
-  return { publish, unpublish, activeTriggers, findWebhook, findTelegram, findForm, listen, consumeListener, listenerStatus, stopListening };
+  return { publish, unpublish, activeTriggers, findWebhook, findTelegram, findForm, findChat, listen, consumeListener, listenerStatus, stopListening };
 }
 
 export type TriggerService = ReturnType<typeof createTriggerService>;

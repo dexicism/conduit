@@ -64,7 +64,7 @@ export function TestButton({ onStart }: { onStart: (nodeId: string, isWebhook: b
 
 export interface LiveTrigger {
   nodeId: string;
-  kind: "webhook" | "schedule" | "telegram" | "form";
+  kind: "webhook" | "schedule" | "telegram" | "form" | "chat";
   method?: string;
   url?: string;
   nextRunAt?: string;
@@ -88,25 +88,25 @@ export function LiveTriggersDialog({ open, onOpenChange, triggers }: { open: boo
         <DialogHeader>
           <DialogTitle>Workflow is live</DialogTitle>
           <DialogDescription>
-            {triggers.length ? "These triggers now start the published version." : "It has no webhook, form, bot or schedule; it runs when another workflow or the API calls it."}
+            {triggers.length ? "These triggers now start the published version." : "It has no webhook, form, chat, bot or schedule; it runs when another workflow or the API calls it."}
           </DialogDescription>
         </DialogHeader>
         <ul className="grid gap-3">
           {triggers.map((t) => (
             <li key={t.nodeId} className="grid gap-1 rounded-lg border p-3 text-sm">
               <span className="font-medium">{label(t.nodeId)}</span>
-              {t.kind === "webhook" || t.kind === "form" ? (
+              {t.kind === "webhook" || t.kind === "form" || t.kind === "chat" ? (
                 <div className="flex items-center gap-2">
-                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{t.kind === "form" ? "FORM" : t.method}</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{t.kind === "form" ? "FORM" : t.kind === "chat" ? "CHAT" : t.method}</span>
                   <code data-testid="live-url" className="min-w-0 flex-1 truncate text-xs">
                     {t.url}
                   </code>
-                  {t.kind === "form" && t.url && (
-                    <Button variant="outline" size="icon-sm" aria-label="Open the form" nativeButton={false} render={<a href={t.url} target="_blank" rel="noreferrer" />}>
+                  {(t.kind === "form" || t.kind === "chat") && t.url && (
+                    <Button variant="outline" size="icon-sm" aria-label={t.kind === "chat" ? "Open the chat" : "Open the form"} nativeButton={false} render={<a href={t.url} target="_blank" rel="noreferrer" />}>
                       <ExternalLinkIcon />
                     </Button>
                   )}
-                  <Button variant="outline" size="icon-sm" aria-label={t.kind === "form" ? "Copy form link" : "Copy production URL"} onClick={() => copy(t.url ?? "")}>
+                  <Button variant="outline" size="icon-sm" aria-label={t.kind === "form" ? "Copy form link" : t.kind === "chat" ? "Copy chat link" : "Copy production URL"} onClick={() => copy(t.url ?? "")}>
                     <CopyIcon />
                   </Button>
                 </div>

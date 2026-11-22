@@ -173,6 +173,67 @@ test.describe("Form trigger", () => {
   });
 });
 
+test.describe("Chat trigger", () => {
+  test("a visitor chats with a published workflow; replies come from the last step or a Respond step", async ({ page, browser, playwright, baseURL }) => {
+    const path = `e2e-chat-${Date.now()}`;
+    const id = await workflowWith(page.request, "Support chat", [
+      { id: "chat", type: "trigger.chat", parameters: { title: "Ask us anything", welcomeMessage: "Hi! How can I help?", path }, to: ["set"] },
+      setStep("set", "reply", "You said: ${['$input']['message']}"),
+    ]);
+    const pub = await (await page.request.post(`/api/workflows/${id}/publish`)).json();
+    expect(pub.triggers[0]).toMatchObject({ kind: "chat", url: `${baseURL}/chat/${path}` });
+
+    // A visitor (not signed in) has a conversation.
+    const visitor = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+    const vp = await visitor.newPage();
+    await vp.goto(`/chat/${path}`);
+    await expect(vp.getByRole("heading", { name: "Ask us anything" })).toBeVisible();
+    await expect(vp.getByTestId("chat-bot-message").first()).toHaveText("Hi! How can I help?");
+    await vp.getByLabel("Message").fill("Do you ship to Pune?");
+    await vp.keyboard.press("Enter");
+    await expect(vp.getByTestId("chat-bot-message").nth(1)).toHaveText("You said: Do you ship to Pune?", { timeout: 30_000 });
+    await vp.getByLabel("Message").fill("<b>bold?</b>");
+    await vp.getByRole("button", { name: "Send" }).click();
+    // Shown as plain text, never as markup.
+    await expect(vp.getByTestId("chat-bot-message").nth(2)).toHaveText("You said: <b>bold?</b>", { timeout: 30_000 });
+    const sessionId = await vp.evaluate((p) => localStorage.getItem(`conduit-chat-${p}`), path);
+    await visitor.close();
+
+    // Both messages reached the workflow with the same conversation id.
+    const runs = (await (await page.request.get(`/api/executions?workflowId=${id}`)).json()).data as Array<{ id: string }>;
+    expect(runs).toHaveLength(2);
+    const detail = await (await page.request.get(`/api/executions/${runs[0]!.id}`)).json();
+    expect(JSON.stringify(detail)).toContain(sessionId!);
+
+    // Another visitor can't read this conversation's replies.
+    const anon = await playwright.request.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+    const other = await anon.get(`/api/chat/${path}?run=${runs[0]!.id}&session=${"x".repeat(32)}`);
+    expect(other.status()).toBe(404);
+    // Bad input is refused before any run starts.
+    expect((await anon.post(`/api/chat/${path}`, { data: { sessionId: "short", message: "hi" } })).status()).toBe(400);
+    expect((await anon.post(`/api/chat/${path}`, { data: { sessionId: "y".repeat(32), message: "z".repeat(4001) } })).status()).toBe(413);
+
+    // A Respond step's body is the reply.
+    const path2 = `${path}-respond`;
+    const id2 = await workflowWith(page.request, "Respond chat", [
+      { id: "chat", type: "trigger.chat", parameters: { title: "Respond", path: path2 }, to: ["r"] },
+      { id: "r", type: "core.respond", parameters: { status: 200, body: '{"reply": "From the Respond step"}' } },
+    ]);
+    await page.request.post(`/api/workflows/${id2}/publish`);
+    const sent = await (await anon.post(`/api/chat/${path2}`, { data: { sessionId: "s".repeat(32), message: "hello" } })).json();
+    await expect
+      .poll(async () => (await (await anon.get(`/api/chat/${path2}?run=${sent.runId}&session=${"s".repeat(32)}`)).json()), { timeout: 20_000 })
+      .toEqual({ status: "done", reply: "From the Respond step" });
+    await anon.dispose();
+
+    // Unpublished chats disappear.
+    await page.request.delete(`/api/workflows/${id}/publish`);
+    await page.request.delete(`/api/workflows/${id2}/publish`);
+    await page.goto(`/chat/${path}`);
+    await expect(page.getByRole("heading", { name: "This chat isn't available" })).toBeVisible();
+  });
+});
+
 test.describe("MCP server", () => {
   test("OAuth (DCR + PKCE + consent), tools, draft-only edits, test run, refresh rotation", async ({ page, playwright, baseURL }) => {
     const anon = await playwright.request.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
