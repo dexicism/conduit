@@ -3,6 +3,7 @@
 import { getDefinition, isFieldVisible, nodeIssues } from "@conduit/nodes";
 import { CopyIcon, Trash2Icon, XIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ import { formatDuration } from "@/components/runs/run-status";
 import { JsonView } from "@/components/runs/json-view";
 import { cn } from "@/lib/utils";
 import { useEditor, useEditorStoreApi } from "./context";
-import { dataSourcesFor, resolveContextFor } from "./data-context";
+import { dataSourcesFor, resolveContextFor, variablesSource } from "./data-context";
 import { latestSteps } from "./store";
 
 function StepOutput({ step }: { step: StepSummary }) {
@@ -67,7 +68,20 @@ export function ConfigPanel() {
   const steps = useMemo(() => latestSteps(run), [run]);
   const step = node ? steps[node.id] : undefined;
 
-  const sources = useMemo(() => (node ? dataSourcesFor(graph, node.id, steps) : []), [graph, node, steps]);
+  const varsQ = useQuery({
+    queryKey: ["variables"],
+    queryFn: async () => {
+      const res = await fetch("/api/workspace/variables");
+      if (!res.ok) return [];
+      return ((await res.json()) as { variables: Array<{ name: string; secret: boolean; value: string | null }> }).variables;
+    },
+    staleTime: 60_000,
+  });
+  const sources = useMemo(() => {
+    if (!node) return [];
+    const vars = variablesSource(varsQ.data ?? []);
+    return [...dataSourcesFor(graph, node.id, steps), ...(vars ? [vars] : [])];
+  }, [graph, node, steps, varsQ.data]);
   const ctx = useMemo(() => resolveContextFor(sources), [sources]);
   const issues = useMemo(() => (node ? nodeIssues(graph, node) : []), [graph, node]);
 

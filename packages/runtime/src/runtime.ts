@@ -9,6 +9,7 @@ import { createHttpClient } from "./net";
 import { ensureCredentialIndexes, redactText, redactValue, type Integrations } from "./integrations";
 import { createSandbox } from "./sandbox";
 import { collections, ensureRuntimeIndexes, toStepDoc, type ExecutionDoc, type JobDoc } from "./store";
+import { createVariables, ensureVariableIndexes } from "./variables";
 
 export interface RuntimeOptions {
   allowPrivateNetwork: boolean;
@@ -83,11 +84,12 @@ export function createRuntime(
   // Outbound webhooks need the vault (their signing secrets are encrypted).
   const outbound = apps.integrations ? createOutbound(db, { vault: apps.integrations.vault, http: createHttpClient({ allowPrivateNetwork: opts.allowPrivateNetwork }) }) : null;
   const c = collections(db);
+  const variables = createVariables(db, apps.integrations?.vault);
   const http = createHttpClient({ allowPrivateNetwork: opts.allowPrivateNetwork });
   const runCode = createSandbox({ memoryLimitMb: opts.codeMemoryMb, timeoutMs: opts.codeTimeoutMs });
   let indexes: Promise<void> | null = null;
   const ready = () =>
-    (indexes ??= Promise.all([ensureRuntimeIndexes(db), ensureMemoryIndexes(db), ensureCredentialIndexes(db), ensureSeenIndexes(db)])
+    (indexes ??= Promise.all([ensureRuntimeIndexes(db), ensureMemoryIndexes(db), ensureCredentialIndexes(db), ensureSeenIndexes(db), ensureVariableIndexes(db)])
       .then(() => undefined)
       .catch((e) => ((indexes = null), Promise.reject(e))));
   const expiry = () => new Date(Date.now() + opts.retentionDays * 86_400_000);
@@ -246,10 +248,12 @@ export function createRuntime(
     const exp = doc.expiresAt;
     // Secret values opened during this run; masked in everything stored.
     const secrets = new Set<string>();
+    const workspaceVars = await variables.load(doc.workspaceId);
+    for (const s of workspaceVars.secrets) secrets.add(s);
     const raw = await runExecution({
       graph: doc.graph,
       state: doc.state,
-      services: servicesFor(doc, secrets),
+      services: { ...servicesFor(doc, secrets), vars: workspaceVars.vars },
       hooks: {
         onStep: async (r) => {
           const safe = { ...r, input: redactValue(r.input, secrets), output: redactValue(r.output, secrets), logs: redactValue(r.logs, secrets) };

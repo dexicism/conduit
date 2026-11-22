@@ -215,7 +215,7 @@ function stringifyResult(v: unknown): string {
 function bindTools(ctx: ExecContext, item: Item, itemIndex: number, depth: number): BoundTool[] {
   const nodes: Record<string, unknown> = {};
   for (const [id, out] of Object.entries(ctx.state.outputs)) if (out.length) nodes[id] = out[Math.min(itemIndex, out.length - 1)]!.json;
-  const resolve = (n: WorkflowNode) => resolveParameters(n.parameters, { input: item.json, nodes }).value;
+  const resolve = (n: WorkflowNode) => resolveParameters(n.parameters, { input: item.json, nodes, vars: ctx.services.vars }).value;
 
   return toolsOfAgent(ctx.graph, ctx.node)
     .filter((t) => !t.disabled)

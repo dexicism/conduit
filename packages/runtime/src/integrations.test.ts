@@ -18,6 +18,7 @@ import { telegramModeFromEnv } from "./integrations-env";
 import { startTelegramPoller } from "./telegram-poll";
 import { createTriggerService } from "./triggers";
 import { createVault, parseMasterKeys, VaultError } from "./vault";
+import { createVariables } from "./variables";
 import { createWhatsappReceiver, whatsappMessages } from "./whatsapp";
 
 let rs: MongoMemoryReplSet;
@@ -1040,5 +1041,44 @@ describe("WhatsApp incoming messages", () => {
     expect(items.map((i) => i.text)).toEqual(["Yes please", "Medium", "my receipt", "Cafe, Main St 1", "Stop"]);
     expect(items[2]!.mediaId).toBe("MEDIA1");
     expect(whatsappMessages({ nonsense: true })).toEqual([]);
+  });
+});
+
+describe("workspace variables", () => {
+  it("fill in ${['$vars'][...]} in any step, hide secret values in run logs, and stay per workspace", async () => {
+    const ws = new ObjectId();
+    const vars = createVariables(db, integ.vault);
+    await vars.create(ws, userId, { name: "GREETING", value: "Hello", secret: false });
+    const token = await vars.create(ws, userId, { name: "API_TOKEN", value: "tok_super_secret_42", secret: true });
+    expect(token.value).toBeNull();
+    await expect(vars.create(ws, userId, { name: "GREETING", value: "x", secret: false })).rejects.toThrow(/already a variable/);
+    await expect(vars.create(ws, userId, { name: "bad name", value: "x", secret: false })).rejects.toThrow(/letters, numbers/);
+    await vars.create(new ObjectId(), userId, { name: "GREETING", value: "Other workspace", secret: false });
+
+    const r = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["set"] } },
+      {
+        id: "set",
+        type: "core.set",
+        parameters: {
+          assignments: [
+            { id: "a", name: "text", value: "${['$vars']['GREETING']} ${['$input']['email']}", type: "string" },
+            { id: "b", name: "auth", value: "Bearer ${['$vars']['API_TOKEN']}", type: "string" },
+          ],
+        },
+      },
+    ]);
+    expect(r.done.status).toBe("success");
+    expect(r.output("set")?.[0]).toMatchObject({ text: "Hello ana@example.com", auth: "Bearer [hidden]" });
+    expect(JSON.stringify(r.steps)).not.toContain("tok_super_secret_42");
+
+    await vars.update(ws, userId, token.id, { value: "tok_rotated_99" });
+    const loaded = await vars.load(ws);
+    expect(loaded.vars).toEqual({ GREETING: "Hello", API_TOKEN: "tok_rotated_99" });
+    expect(loaded.secrets).toEqual(["tok_rotated_99"]);
+    expect((await vars.list(ws)).map((v) => [v.name, v.value])).toEqual([
+      ["API_TOKEN", null],
+      ["GREETING", "Hello"],
+    ]);
   });
 });

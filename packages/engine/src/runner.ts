@@ -82,7 +82,7 @@ function firstOutputId(def: NodeDefinition, node: WorkflowNode): string {
   return outputsOf(def, node.parameters)[0]?.id ?? "main";
 }
 
-function makeParams(graph: WorkflowGraph, node: WorkflowNode, items: Item[], state: RunState) {
+function makeParams(graph: WorkflowGraph, node: WorkflowNode, items: Item[], state: RunState, vars?: Record<string, string>) {
   const cache = new Map<number, Record<string, unknown>>();
   return (i: number) => {
     const hit = cache.get(i);
@@ -92,7 +92,7 @@ function makeParams(graph: WorkflowGraph, node: WorkflowNode, items: Item[], sta
       if (!out.length) continue;
       nodes[id] = out[Math.min(i, out.length - 1)]!.json;
     }
-    const { value } = resolveParameters(node.parameters, { input: items[i]?.json, nodes });
+    const { value } = resolveParameters(node.parameters, { input: items[i]?.json, nodes, vars });
     cache.set(i, value);
     return value;
   };
@@ -252,7 +252,7 @@ export async function runExecution(opts: {
         delete state.merges[node.id];
         outputs = { main: combineMerge(node.parameters.mode, buf.a, buf.b) };
       } else if (node.type === "flow.loop") {
-        outputs = runLoop(graph, node, task, state, makeParams(graph, node, task.items, state));
+        outputs = runLoop(graph, node, task, state, makeParams(graph, node, task.items, state, services.vars));
       } else {
         const exec = EXECUTORS[node.type];
         if (!exec) throw new StepError(`"${def.name}" can't run yet`);
@@ -266,7 +266,7 @@ export async function runExecution(opts: {
           from: task.from,
           state,
           services,
-          params: makeParams(graph, node, task.items, state),
+          params: makeParams(graph, node, task.items, state, services.vars),
           log: (m) => logs.push(m),
         };
         const res = await exec(ctx);

@@ -97,3 +97,12 @@ describe("resolveParameters / collectReferences", () => {
     expect(collectReferences(params).map((r) => r.source)).toEqual(["$input", "order"]);
   });
 });
+
+describe("workspace variables", () => {
+  it("resolves $vars and reports unknown ones as missing", () => {
+    const ctx = { nodes: {}, vars: { PHONE: "+15550001111" } };
+    expect(resolveTemplate("Call ${['$vars']['PHONE']}", ctx)).toEqual({ value: "Call +15550001111", missing: [], invalid: [] });
+    expect(resolveTemplate("${['$vars']['NOPE']}", ctx).missing).toEqual(["${['$vars']['NOPE']}"]);
+    expect(resolveTemplate("${['$vars']['PHONE']}", { nodes: {} }).missing).toHaveLength(1);
+  });
+});

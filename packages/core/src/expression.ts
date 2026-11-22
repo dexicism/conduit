@@ -5,6 +5,7 @@
  *
  *   ${['$input']['customer']['email']}   current item from the directly connected upstream node
  *   ${['node-id']['items']['0']['sku']}   output of a specific upstream node, by node ID
+ *   ${['$vars']['SUPPORT_PHONE']}         a workspace variable
  *
  * Path segments are always quoted strings; numeric segments index arrays. When a
  * whole parameter is exactly one reference, resolution keeps the referenced value's
@@ -16,6 +17,7 @@
  */
 
 export const INPUT_SOURCE = "$input";
+export const VARS_SOURCE = "$vars";
 
 export interface TextPart {
   kind: "text";
@@ -162,6 +164,8 @@ export interface ResolveContext {
   input?: unknown;
   /** Current item of each upstream node, by node ID. */
   nodes: Record<string, unknown>;
+  /** Workspace variables, by name. */
+  vars?: Record<string, unknown>;
 }
 
 export interface ResolveResult {
@@ -183,6 +187,10 @@ function stringify(v: unknown): string {
 }
 
 function lookup(ref: RefPart, ctx: ResolveContext): { found: boolean; value: unknown } {
+  if (ref.source === VARS_SOURCE) {
+    const value = ctx.vars ? getPath(ctx.vars, ref.path) : undefined;
+    return { found: value !== undefined, value };
+  }
   const root = ref.source === INPUT_SOURCE ? ctx.input : ctx.nodes[ref.source];
   const known = ref.source === INPUT_SOURCE ? ctx.input !== undefined : ref.source in ctx.nodes;
   if (!known) return { found: false, value: undefined };

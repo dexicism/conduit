@@ -1,6 +1,6 @@
 "use client";
 
-import { INPUT_SOURCE, type ResolveContext, type StepSummary, type WorkflowGraph } from "@conduit/core";
+import { INPUT_SOURCE, VARS_SOURCE, type ResolveContext, type StepSummary, type WorkflowGraph } from "@conduit/core";
 import { agentOfTool, directParents, getDefinition, upstreamNodeIds } from "@conduit/nodes";
 
 export interface DataSource {
@@ -52,10 +52,23 @@ export function dataSourcesFor(graph: WorkflowGraph, nodeId: string, steps: Reco
   return out;
 }
 
+/** Workspace variables as a data source. Secret values show as a placeholder. */
+export function variablesSource(vars: Array<{ name: string; secret: boolean; value: string | null }>): DataSource | null {
+  if (!vars.length) return null;
+  return {
+    source: VARS_SOURCE,
+    label: "Workspace variables",
+    typeName: "Settings",
+    sample: Object.fromEntries(vars.map((v) => [v.name, v.secret ? "(secret)" : (v.value ?? "")])),
+    fromRun: false,
+  };
+}
+
 export function resolveContextFor(sources: DataSource[]): ResolveContext {
   const ctx: ResolveContext = { nodes: {} };
   for (const s of sources) {
     if (s.source === INPUT_SOURCE) ctx.input = s.sample;
+    else if (s.source === VARS_SOURCE) ctx.vars = s.sample as Record<string, unknown>;
     else ctx.nodes[s.source] = s.sample;
   }
   return ctx;

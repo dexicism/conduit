@@ -127,6 +127,8 @@ export interface EngineServices {
   seen?: SeenService;
   /** Undefined when connected apps aren't available (no encryption key). */
   integrations?: IntegrationServices;
+  /** Workspace variables, for ${['$vars']['NAME']}. */
+  vars?: Record<string, string>;
 }
 
 export interface ResponseSpec {

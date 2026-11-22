@@ -1,4 +1,4 @@
-import { collectReferences, hasReferences, INPUT_SOURCE, type WorkflowGraph, type WorkflowNode } from "@conduit/core";
+import { collectReferences, hasReferences, INPUT_SOURCE, VARS_SOURCE, type WorkflowGraph, type WorkflowNode } from "@conduit/core";
 import { codeNode, executeWorkflowNode, httpRequestNode, respondNode, setFieldsNode } from "./definitions/core";
 import { filterNode, ifNode, loopNode, mergeNode, onlyNewNode, switchNode, waitNode } from "./definitions/flow";
 import { cryptoNode, dateNode, jsonNode, listNode, mathNode, textNode } from "./definitions/transform";
@@ -537,6 +537,7 @@ export function validateNodeReferences(graph: WorkflowGraph, node: WorkflowNode)
   const issues: ParamIssue[] = [];
   for (const [field, value] of Object.entries(node.parameters)) {
     for (const ref of collectReferences(value)) {
+      if (ref.source === VARS_SOURCE) continue;
       if (ref.source === INPUT_SOURCE) {
         if (!hasInput) issues.push({ field, message: "Uses the previous step's data, but nothing is connected before this step" });
       } else if (!upstream.has(ref.source)) {

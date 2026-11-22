@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DeveloperSettings } from "./developer-settings";
 import { SecuritySettings } from "./security-settings";
+import { VariablesSettings } from "./variables-settings";
 
 interface Member {
   userId: string;
@@ -239,6 +240,8 @@ export function SettingsView({
           )}
         </section>
       )}
+
+      <VariablesSettings canEdit={workspace.role !== "viewer"} />
 
       <SecuritySettings />
 
