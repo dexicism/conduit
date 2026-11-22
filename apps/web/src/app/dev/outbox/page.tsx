@@ -33,7 +33,11 @@ export default async function DevOutboxPage() {
       </p>
       {entries.length === 0 ? (
         <p className="mt-8 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          Nothing sent yet.
+          Nothing sent yet. Enter your email on the{" "}
+          <a href="/login" className="font-medium text-foreground underline underline-offset-4">
+            sign-in page
+          </a>
+          , then refresh this page to see your code.
         </p>
       ) : (
         <ul className="mt-6 space-y-3">
