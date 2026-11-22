@@ -314,14 +314,32 @@ export async function restoreVersion(workspaceId: ObjectId, userId: string, id: 
 
 export const EXPORT_FORMAT = "conduit-workflow";
 
-/** Clears every account picked in the graph, so a shared file never points at your connections. */
+const SECRET_HEADER = /^(authorization|proxy-authorization|cookie|x-api-key|api-key|apikey)$|token|secret|password/i;
+
+/** A value that only points somewhere (a variable or another step) holds no secret itself. */
+const onlyReferences = (v: unknown) => typeof v === "string" && /^\s*(\$\{\[[^}]*\]\}\s*)+$/.test(v);
+
+/**
+ * Clears what shouldn't travel in a shared file: the accounts picked in each
+ * step, secrets typed into fields marked sensitive, and auth-looking HTTP
+ * headers. References like ${['$vars']['TOKEN']} are kept, since they hold no secret.
+ */
 export function stripCredentials(graph: WorkflowGraph): WorkflowGraph {
   return {
     ...graph,
     nodes: graph.nodes.map((n) => {
       const fields = getDefinition(n.type)?.fields ?? [];
       const parameters = { ...n.parameters };
-      for (const f of fields) if (f.kind === "credential" && f.name in parameters) parameters[f.name] = "";
+      for (const f of fields) {
+        if (!(f.name in parameters)) continue;
+        if (f.kind === "credential") parameters[f.name] = "";
+        else if (f.kind === "string" && f.sensitive && !onlyReferences(parameters[f.name])) parameters[f.name] = "";
+        else if (f.kind === "keyValue" && Array.isArray(parameters[f.name])) {
+          parameters[f.name] = (parameters[f.name] as Array<{ key?: unknown; value?: unknown }>).map((h) =>
+            SECRET_HEADER.test(String(h?.key ?? "")) && !onlyReferences(h?.value) ? { ...h, value: "" } : h,
+          );
+        }
+      }
       return { ...n, parameters };
     }),
   };

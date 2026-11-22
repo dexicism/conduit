@@ -254,6 +254,7 @@ export function EditorTopBar({
                   a.href = `/api/workflows/${meta.id}/export`;
                   a.download = "";
                   a.click();
+                  toast.success("Downloaded", { description: "Connected accounts and secret fields are left out. Other values you typed into steps are included." });
                 });
               }}
             >

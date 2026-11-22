@@ -1082,3 +1082,34 @@ describe("workspace variables", () => {
     ]);
   });
 });
+
+describe("WhatsApp retries", () => {
+  it("if starting the run fails, Meta's retry of the same message still gets through", async () => {
+    const ws = new ObjectId();
+    const appSecret = "retry-secret";
+    const id = await cred(ws, "whatsapp", { phoneNumberId: FAKE.whatsappPhoneId, accessToken: FAKE.whatsappToken, appSecret, verifyToken: "v" });
+    const wf = new ObjectId();
+    const g = graph([{ id: "wa", type: "trigger.whatsapp", parameters: { credential: id } }]);
+    await db.collection("workflows").insertOne({ _id: wf, workspaceId: ws, name: "retry", revision: 1, draft: g, publishedVersionId: null, archivedAt: null });
+    await createTriggerService(db, client, {}).publish(ws, wf, userId);
+
+    let fail = true;
+    const flaky = {
+      createExecution: async (input: Parameters<Runtime["createExecution"]>[0], enqueue: boolean) => {
+        if (fail) {
+          fail = false;
+          throw new Error("database hiccup");
+        }
+        return rt.createExecution(input, enqueue);
+      },
+    };
+    const receiver = createWhatsappReceiver(db, integ, flaky);
+    const body = JSON.stringify({
+      entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: FAKE.whatsappPhoneId }, messages: [{ from: "1", id: "wamid.RETRY", type: "text", text: { body: "hi" } }] } }] }],
+    });
+    const sig = `sha256=${createHmac("sha256", appSecret).update(body).digest("hex")}`;
+    await expect(receiver.receive(id, body, sig)).rejects.toThrow("database hiccup");
+    expect(await receiver.receive(id, body, sig)).toEqual({ status: 200, started: 1 });
+    expect(await receiver.receive(id, body, sig)).toEqual({ status: 200, started: 0 });
+  });
+});

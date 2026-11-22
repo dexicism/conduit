@@ -348,5 +348,12 @@ describe("home page numbers", () => {
       ["Sheet", 1, 0],
     ]);
     expect(o.recentFailures.map((f) => f.error?.message)).toEqual(["boom"]);
+
+    // 20:30 UTC on the 10th is already the 11th in India.
+    const late = run(a, "Bot", "success", new Date("2026-03-10T20:30:00Z"));
+    await db.collection("executions").insertOne(late);
+    const ist = await createExecutionQueries(db).overview(ws, 7, new Date("2026-03-10T21:00:00Z"), "Asia/Kolkata");
+    expect(ist.days.at(-1)).toEqual({ day: "2026-03-11", success: 1, failed: 0, other: 0 });
+    expect((await createExecutionQueries(db).overview(ws, 7, now, "Not/AZone")).days.at(-1)?.day).toBe("2026-03-10");
   });
 });

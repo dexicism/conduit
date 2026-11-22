@@ -1,4 +1,4 @@
-import { json, route } from "@/lib/api";
+import { json, route, searchParamsObject } from "@/lib/api";
 import { db } from "@/lib/db";
 import { rt } from "@/lib/runtime";
 import { requireApiContext } from "@/lib/session";
@@ -9,7 +9,7 @@ export const GET = route(async (req) => {
   const ws = workspace.workspaceId;
   const workflows = db.collection("workflows");
   const [runs, total, live, connections, nextRun] = await Promise.all([
-    rt().executions.overview(ws, 7),
+    rt().executions.overview(ws, 7, new Date(), searchParamsObject(req).tz),
     workflows.countDocuments({ workspaceId: ws, archivedAt: null }),
     workflows.countDocuments({ workspaceId: ws, archivedAt: null, publishedVersionId: { $ne: null } }),
     rt().integrations.collections.credentials.countDocuments({ workspaceId: ws }),

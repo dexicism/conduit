@@ -16,6 +16,28 @@ function decodeCursor(cursor: string): { t: Date; id: ObjectId } | null {
   }
 }
 
+/** A real IANA time zone name, or UTC. */
+export function safeTimeZone(tz: string | undefined): string {
+  if (!tz) return "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    return "UTC";
+  }
+}
+
+/** How far `tz` is ahead of UTC at `at`, in ms. */
+function zoneOffsetMs(at: Date, tz: string): number {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      .formatToParts(at)
+      .map((x) => [x.type, x.value]),
+  );
+  const asUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
+  return asUtc - Math.floor(at.getTime() / 1000) * 1000;
+}
+
 export function createExecutionQueries(db: Db) {
   const c = collections(db);
 
@@ -81,16 +103,19 @@ export function createExecutionQueries(db: Db) {
    * Numbers for the home page: live runs per day for the last `days` days, the
    * busiest workflows and the latest failures. Test runs from the editor are left out.
    */
-  async function overview(workspaceId: ObjectId, days = 7, now = new Date()): Promise<RunOverview> {
-    const since = new Date(now);
-    since.setUTCHours(0, 0, 0, 0);
-    since.setUTCDate(since.getUTCDate() - (days - 1));
+  async function overview(workspaceId: ObjectId, days = 7, now = new Date(), timeZone = "UTC"): Promise<RunOverview> {
+    // Days are counted in the viewer's time zone, so a 1 a.m. run lands on today's bar.
+    const tz = safeTimeZone(timeZone);
+    const offset = zoneOffsetMs(now, tz);
+    const local = new Date(now.getTime() + offset);
+    const firstDay = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() - (days - 1));
+    const since = new Date(firstDay - offset);
     const match = { workspaceId, startedAt: { $gte: since }, mode: { $ne: "test" as const } };
     const [byDay, byWorkflow, failures, running] = await Promise.all([
       c.executions
         .aggregate<{ _id: { day: string; status: string }; n: number; ms: number }>([
           { $match: match },
-          { $group: { _id: { day: { $dateToString: { format: "%Y-%m-%d", date: "$startedAt" } }, status: "$status" }, n: { $sum: 1 }, ms: { $sum: { $ifNull: ["$durationMs", 0] } } } },
+          { $group: { _id: { day: { $dateToString: { format: "%Y-%m-%d", date: "$startedAt", timezone: tz } }, status: "$status" }, n: { $sum: 1 }, ms: { $sum: { $ifNull: ["$durationMs", 0] } } } },
         ])
         .toArray(),
       c.executions
@@ -118,9 +143,7 @@ export function createExecutionQueries(db: Db) {
     ]);
     const daysOut: RunOverview["days"] = [];
     for (let i = 0; i < days; i++) {
-      const d = new Date(since);
-      d.setUTCDate(since.getUTCDate() + i);
-      const key = d.toISOString().slice(0, 10);
+      const key = new Date(firstDay + i * 86_400_000).toISOString().slice(0, 10);
       const rows = byDay.filter((r) => r._id.day === key);
       const count = (st: string) => rows.filter((r) => r._id.status === st).reduce((t, r) => t + r.n, 0);
       daysOut.push({ day: key, success: count("success"), failed: count("failed"), other: rows.reduce((t, r) => t + r.n, 0) - count("success") - count("failed") });

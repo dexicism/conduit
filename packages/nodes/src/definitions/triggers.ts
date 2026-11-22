@@ -86,6 +86,7 @@ export const webhookTrigger: NodeDefinition = {
       label: "Expected value",
       required: true,
       expression: false,
+      sensitive: true,
       showIf: { field: "auth", equals: ["header"] },
     },
   ],

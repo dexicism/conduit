@@ -54,6 +54,8 @@ export interface StringField extends FieldBase {
   aiFill?: boolean;
   /** Suggestions loaded from the connected account (see `/api/nodes/options`). */
   dynamicOptions?: DynamicOptionsSource;
+  /** Holds a secret: left out when the workflow is downloaded as a file. */
+  sensitive?: boolean;
 }
 
 /** Live lists offered as suggestions next to a text field. */

@@ -142,7 +142,13 @@ export function createWhatsappReceiver(db: Db, integrations: Integrations, runti
         triggerNodeId: t.nodeId,
         triggerItems: [{ json: { ...m } }],
       };
-      await runtime.createExecution(input, true);
+      try {
+        await runtime.createExecution(input, true);
+      } catch (e) {
+        // Forget it again, so Meta's retry (we answer 500) gets another go.
+        await seen.deleteOne({ workflowId: t.workflowId, nodeId: "__whatsapp", key: m.messageId });
+        throw e;
+      }
       started++;
     }
     return { status: 200, started };

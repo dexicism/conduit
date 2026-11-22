@@ -188,7 +188,7 @@ export const cryptoNode: NodeDefinition = {
         { value: "uuid", label: "Generate a UUID" },
       ],
     },
-    { kind: "string", name: "secret", label: "Secret", required: true, showIf: { field: "operation", equals: ["hmac-sha256"] } },
+    { kind: "string", name: "secret", label: "Secret", required: true, sensitive: true, showIf: { field: "operation", equals: ["hmac-sha256"] } },
     {
       kind: "select",
       name: "encoding",

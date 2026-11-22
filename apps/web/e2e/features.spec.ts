@@ -91,14 +91,27 @@ test("download a workflow as a file and import it again, without the accounts", 
     await page.request.post("/api/credentials", { data: { app: "whatsapp", label: `WA ${Date.now()}`, values: WHATSAPP } })
   ).json();
   const id = await workflowWith(page.request, "Export me", [
-    { id: "start", type: "trigger.manual", to: { main: ["send"] } },
-    { id: "send", type: "app.whatsapp.send", parameters: { credential: cred.id, to: "+15550001111", messageType: "text", text: "hi" } },
+    { id: "start", type: "trigger.webhook", parameters: { method: "POST", path: `e2e-export-${Date.now()}`, respond: "immediately", auth: "header", authHeaderName: "x-api-key", authHeaderValue: "s3cret-typed-in" }, to: { main: ["send"] } },
+    { id: "send", type: "app.whatsapp.send", parameters: { credential: cred.id, to: "+15550001111", messageType: "text", text: "hi" }, to: { main: ["http"] } },
+    {
+      id: "http",
+      type: "core.http",
+      parameters: { method: "GET", url: "https://example.com", headers: [{ key: "Authorization", value: "Bearer typed-token-1" }, { key: "X-Key", value: "${['$vars']['KEY']}" }, { key: "Accept", value: "text/plain" }] },
+    },
   ]);
   const res = await page.request.get(`/api/workflows/${id}/export`);
   expect(res.headers()["content-disposition"]).toMatch(/attachment; filename=".+\.conduit\.json"/);
   const file = await res.json();
   expect(file.format).toBe("conduit-workflow");
-  expect(file.graph.nodes.find((n: { id: string }) => n.id === "send").parameters.credential).toBe("");
+  const node = (nodeId: string) => file.graph.nodes.find((n: { id: string }) => n.id === nodeId).parameters;
+  expect(node("send").credential).toBe("");
+  expect(node("start").authHeaderValue).toBe("");
+  expect(node("http").headers).toEqual([
+    { key: "Authorization", value: "" },
+    { key: "X-Key", value: "${['$vars']['KEY']}" },
+    { key: "Accept", value: "text/plain" },
+  ]);
+  expect(JSON.stringify(file)).not.toMatch(/s3cret-typed-in|typed-token-1/);
   const path = join(tmpdir(), `conduit-e2e-${Date.now()}.json`);
   await writeFile(path, JSON.stringify(file));
 
