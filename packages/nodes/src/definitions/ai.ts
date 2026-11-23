@@ -16,7 +16,7 @@ export const agentNode: NodeDefinition = {
   type: "ai.agent",
   version: 1,
   name: "AI Agent",
-  description: "Let Claude work through a task, calling the tools you connect, then answer.",
+  description: "Let the AI work through a task, calling the tools you connect, then answer.",
   category: "ai",
   icon: "Bot",
   color: "violet",
