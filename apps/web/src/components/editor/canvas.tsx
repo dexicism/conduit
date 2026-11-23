@@ -6,6 +6,7 @@ import {
   BackgroundVariant,
   MiniMap,
   ReactFlow,
+  useNodesInitialized,
   useReactFlow,
   type Connection,
   type Edge as FlowEdge,
@@ -13,7 +14,7 @@ import {
   type NodeChangeset,
   type OnConnectEnd,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { toast } from "sonner";
 import { useEditor, useEditorStoreApi } from "./context";
 import { DeletableEdge } from "./deletable-edge";
@@ -177,6 +178,17 @@ export function Canvas({
   );
 
   const hasViewport = graph.viewport.x !== 0 || graph.viewport.y !== 0 || graph.viewport.zoom !== 1;
+
+  // The first fit can run before the page around the canvas has settled (panels opening,
+  // the sidebar closing), which leaves the steps off-center. Fit once more after nodes are measured.
+  const nodesReady = useNodesInitialized();
+  const refitted = useRef(false);
+  useEffect(() => {
+    if (!nodesReady || refitted.current || hasViewport || !graph.nodes.length) return;
+    refitted.current = true;
+    const t = setTimeout(() => void rf.fitView({ maxZoom: 1, padding: 0.3 }), 120);
+    return () => clearTimeout(t);
+  }, [nodesReady, hasViewport, graph.nodes.length, rf]);
 
   return (
     <ReactFlow<FlowNode, FlowEdge>

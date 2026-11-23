@@ -1,5 +1,12 @@
 # Conduit
 
+[![CI](https://github.com/dexicism/conduit/actions/workflows/ci.yml/badge.svg)](https://github.com/dexicism/conduit/actions/workflows/ci.yml)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs)
+![MongoDB](https://img.shields.io/badge/MongoDB-replica%20set-47A248?logo=mongodb&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-180%20unit%20%C2%B7%2062%20browser-brightgreen)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 My own workflow automation tool, kind of like Zapier or n8n, but it runs on my laptop and costs nothing.
 
 You drag steps onto a canvas, connect them, and hit publish. Some things I use it for:
@@ -10,6 +17,12 @@ You drag steps onto a canvas, connect them, and hit publish. Some things I use i
 - scheduled jobs that send emails or create calendar events
 
 The AI runs locally through [Ollama](https://ollama.com), so there's no API bill. There are no plans, no credits and no limits either. Everything's just free.
+
+![Home page: live runs per day, success rate, busiest workflows](docs/screenshots/home.png)
+
+| Editor | Templates |
+|---|---|
+| ![Workflow editor with an AI step open](docs/screenshots/editor.png) | ![Template gallery](docs/screenshots/templates.png) |
 
 ## What's in it
 
@@ -102,6 +115,8 @@ In dev, workflows run inside `npm run dev`. On a server you'd run the worker on 
 By default each workspace runs up to 4 workflows at once (`WORKSPACE_CONCURRENCY`) and keeps run logs for 7 days (`EXECUTION_RETENTION_DAYS`). HTTP steps can't hit private network addresses unless you set `HTTP_ALLOW_PRIVATE_NETWORK=1`. If it sits behind a reverse proxy, set `TRUST_PROXY=1` so the chat page can rate-limit by IP.
 
 ## Tests
+
+GitHub Actions runs the typecheck, lint and unit/integration tests on every push and pull request. The browser tests need a running app, so they run locally.
 
 ```bash
 npm test            # unit and integration tests

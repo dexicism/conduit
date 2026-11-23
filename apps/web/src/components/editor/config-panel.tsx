@@ -77,6 +77,7 @@ export function ConfigPanel() {
     },
     staleTime: 60_000,
   });
+  const aiProvider = useEditor((s) => s.ai.provider);
   const sources = useMemo(() => {
     if (!node) return [];
     const vars = variablesSource(varsQ.data ?? []);
@@ -155,7 +156,13 @@ export function ConfigPanel() {
                   )}
                   {def.fields
                     .filter((f) => isFieldVisible(f, node.parameters))
-                    .map((f) => (
+                    .map((f) =>
+                      // The model picker lists Claude models; a local model ignores it, so say what's used instead.
+                      f.name === "model" && def.requiresAi && aiProvider !== "anthropic" ? (
+                        <p key={f.name} className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+                          {aiProvider === "ollama" ? "Uses your local AI model (set with OLLAMA_MODEL on the server)." : "Uses the AI model set up on this server."}
+                        </p>
+                      ) : (
                       <ParamFieldView
                         key={f.name}
                         field={f}
@@ -167,7 +174,8 @@ export function ConfigPanel() {
                         workflowId={workflowId}
                         params={node.parameters}
                       />
-                    ))}
+                      ),
+                    )}
                 </div>
               ) : (
                 <p className="text-sm text-destructive">This step type is not available.</p>
