@@ -50,6 +50,8 @@ export default defineConfig({
       AI_PROVIDER: "fake",
       // No real WhatsApp connections from tests.
       WHATSAPP_WEB: "0",
+      // ...and no backups of the test database.
+      BACKUP: "0",
       CONDUIT_FAKE_APIS_URL: FAKE_APIS_URL,
       CONDUIT_ENCRYPTION_KEY: "v1:ZTJlLW9ubHktZW5jcnlwdGlvbi1rZXktMzItYnl0ZXM=",
       CONNECT_GOOGLE_CLIENT_ID: "fake-google-client-id",
