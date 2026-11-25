@@ -282,6 +282,46 @@ export const tasksAdd: NodeDefinition = {
   outputSample: { status: "added", id: "T12", row: 13, Task: "Call Mehta about the quote", Customer: "Mehta Traders", "Assigned to": "Ravi", Status: "Open", Due: "2026-12-01" },
 };
 
+export const tasksDue: NodeDefinition = {
+  ...action,
+  type: "app.tasks.due",
+  name: "Task log: due tasks",
+  description:
+    "Reads the Tasks tab and gives you the open tasks that are overdue, due soon, or all of them, most overdue first. One item per task (to nudge each person), or one summary with a ready-to-send text (for a daily report). Done/closed tasks are left out.",
+  icon: "CalendarClock",
+  app: "google",
+  keywords: ["task", "due", "overdue", "deadline", "follow up", "report", "check", "nudge"],
+  asTool: { name: "due_tasks", description: "Get the team's open tasks that are overdue or due soon, from the task log." },
+  fields: [
+    ...sheetFields().map((f): ParamField => (f.name === "sheet" && f.kind === "string" ? { ...f, default: "Tasks" } : f)),
+    {
+      kind: "select",
+      name: "which",
+      label: "Which tasks",
+      default: "due",
+      options: [
+        { value: "due", label: "Overdue or due within the next days" },
+        { value: "overdue", label: "Only overdue" },
+        { value: "open", label: "All open tasks" },
+      ],
+    },
+    { kind: "number", name: "daysAhead", label: "Days ahead", default: 0, min: 0, max: 60, showIf: { field: "which", equals: ["due"] }, description: "0 = due today or overdue." },
+    { kind: "string", name: "assignee", label: "Only for", placeholder: "Optional name", aiFill: true },
+    {
+      kind: "select",
+      name: "output",
+      label: "Output",
+      default: "each",
+      options: [
+        { value: "each", label: "One item per task" },
+        { value: "summary", label: "One summary (with a text you can send)" },
+      ],
+    },
+    { kind: "string", name: "timezone", label: "Time zone", expression: false, placeholder: "The server's (e.g. Asia/Kolkata)" },
+  ],
+  outputSample: { row: 2, id: "T2", task: "Send quote", customer: "Mehta Traders", assignedTo: "Ravi", phone: "9812345678", status: "Open", due: "2026-11-28", dueDate: "2026-11-28", overdueDays: 2, createdBy: "Shadab", when: "2 days overdue" },
+};
+
 export const gmailSearch: NodeDefinition = {
   ...action,
   type: "app.gmail.search",
@@ -590,6 +630,7 @@ export const APP_ACTION_DEFINITIONS: readonly NodeDefinition[] = [
   sheetsUpdate,
   gmailSearch,
   tasksAdd,
+  tasksDue,
   driveSave,
   driveFind,
   driveRead,

@@ -26,7 +26,7 @@ describe("workflow templates", () => {
         for (const value of Object.values(node.parameters)) {
           for (const text of JSON.stringify(value ?? "").split('\\"').join('"').match(/\$\{[^}]*\}/g) ?? []) {
             for (const part of parseTemplate(text)) {
-              if (part.kind === "ref" && part.source !== "$input") expect(graph.nodes.map((n) => n.id), `${t.id} / ${node.id}: ${text}`).toContain(part.source);
+              if (part.kind === "ref" && part.source !== "$input" && part.source !== "$vars") expect(graph.nodes.map((n) => n.id), `${t.id} / ${node.id}: ${text}`).toContain(part.source);
             }
           }
         }

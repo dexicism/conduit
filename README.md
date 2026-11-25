@@ -27,7 +27,7 @@ The AI runs locally through [Ollama](https://ollama.com), so there's no API bill
 ## What's in it
 
 - **Home page:** how your live workflows did this week: runs per day, success rate, the busiest workflows and the latest failures, with a link straight to each failed run.
-- **Templates:** thirteen ready-made workflows to start from (a team assistant on WhatsApp that knows who's boss, AI bots for Telegram and WhatsApp, an AI assistant on your own WhatsApp number, WhatsApp messages and photos that update your Google Sheet, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
+- **Templates:** fifteen ready-made workflows to start from (a team assistant on WhatsApp that knows who's boss, a morning nudge about due tasks, an AI supervisor that reports to the owner every evening, AI bots for Telegram and WhatsApp, an AI assistant on your own WhatsApp number, WhatsApp messages and photos that update your Google Sheet, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
 - **Editor:** 50-odd kinds of steps, a settings panel for each one, a picker for pulling data from earlier steps, undo/redo, copy/paste, sticky notes, auto-layout. It auto-saves and won't let two tabs overwrite each other.
 - **Version history:** every publish is saved. Open one, restore it into the editor, publish again. There's also **Download as file** and **Import** for sharing a workflow. Accounts, secret fields and auth headers are left out of the file; everything else you typed into steps goes with it, so give it a look before you post it somewhere.
 - **Variables:** put things like a phone number or a sheet link in Team & settings once, then use `${['$vars']['NAME']}` in any step. Secret ones are encrypted and show up as `[hidden]` in run logs.
@@ -111,6 +111,9 @@ Replies within 24 hours of a customer's message are free-form. After that WhatsA
 - **WhatsApp (linked phone): send later** schedules a message ("tomorrow 9am", "2026-11-28 18:30", "in 2 hours", in your time zone). If Conduit is off at that moment, it goes out as soon as it's back. **Reminders** lists or cancels them.
 - **WhatsApp (linked phone): send to many** sends one message to a list of numbers, one at a time with a random 5 to 15 second gap, because instant blasts are what get numbers banned. At most 200 at once.
 - AI agents now know today's date and time, so "remind me Friday" works.
+- **Task log: due tasks** lists open tasks that are overdue or due soon (it reads 2026-11-28, 28/11/2026 and "28 Nov 2026"), one item per task or one summary with a ready-to-send text.
+- **Nudge people about due tasks** (template): every morning, everyone with something due or overdue gets a WhatsApp asking for an update. No AI, so it's free. Their replies reach the team assistant, which can mark the task done or move the date.
+- **Supervisor: daily report to the owner** (template): every evening an AI reads all open tasks, asks people whose tasks are more than 2 days late what's going on, and sends the owner a short report. Set the owner's number once as the variable `OWNER_PHONE`.
 
 **Gmail search** needs permission to read mail, which older connections don't have: press **Reconnect** on the Google account once.
 

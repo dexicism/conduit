@@ -494,6 +494,95 @@ const tasksAdd: AppAction = async (p, services) => {
   return { status: "added", id: taskId, ...rowObject(header, row, Number.isFinite(added) ? added : rows.length + 2) };
 };
 
+/** A due date as YYYY-MM-DD, from 2026-11-28, 28/11/2026 (day first), 28-11-2026 or "28 Nov 2026". */
+export function dueDay(v: string): string | null {
+  const s = v.trim();
+  if (!s) return null;
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  if (m) return `${m[1]}-${m[2]!.padStart(2, "0")}-${m[3]!.padStart(2, "0")}`;
+  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/.exec(s);
+  if (m) {
+    const y = m[3]!.length === 2 ? `20${m[3]}` : m[3]!;
+    return `${y}-${m[2]!.padStart(2, "0")}-${m[1]!.padStart(2, "0")}`;
+  }
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return null;
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Today in a time zone, as YYYY-MM-DD. */
+function todayIn(now: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
+const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000);
+
+const tasksDue: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const id = spreadsheetIdOf(p.spreadsheetId);
+  const { header, rows } = await readTable(services, accessToken, id, p.sheet);
+  const col = taskColumns(header);
+  if (col.task < 0 || col.status < 0) throw new StepError(`The task sheet needs at least Task and Status columns. It has: ${header.filter(Boolean).join(", ")}`);
+  let tz = toText(p.timezone).trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+  } catch {
+    throw new StepError(`"${tz}" isn't a time zone. Use one like Asia/Kolkata.`);
+  }
+  const today = todayIn(services.now(), tz);
+  const which = toText(p.which) || "due";
+  const ahead = Math.max(0, Math.floor(toNumber(p.daysAhead ?? 0, "Days ahead")));
+  const who = norm(toText(p.assignee));
+  const cell = (r: string[], c: number) => (c >= 0 ? (r[c] ?? "").trim() : "");
+
+  const tasks = rows
+    .map((r, i) => {
+      const due = dueDay(cell(r, col.due));
+      const overdueDays = due ? dayDiff(today, due) : null;
+      return {
+        row: i + 2,
+        id: cell(r, col.id) || null,
+        task: cell(r, col.task),
+        customer: cell(r, col.customer) || null,
+        assignedTo: cell(r, col.assignee) || null,
+        phone: cell(r, col.phone) || null,
+        status: cell(r, col.status),
+        due: cell(r, col.due) || null,
+        dueDate: due,
+        /** Days past due: 0 = due today, negative = still to come, null = no date. */
+        overdueDays,
+        createdBy: cell(r, col.createdBy) || null,
+      };
+    })
+    .filter((t) => t.task && !DONE.has(t.status.toLowerCase()))
+    .filter((t) => !who || norm(t.assignedTo ?? "") === who)
+    .filter((t) => {
+      if (which === "open") return true;
+      if (t.overdueDays === null) return false;
+      if (which === "overdue") return t.overdueDays > 0;
+      return t.overdueDays >= -ahead;
+    })
+    .sort((a, b) => (b.overdueDays ?? -9999) - (a.overdueDays ?? -9999));
+
+  const when = (d: number | null) => (d === null ? "no due date" : d > 1 ? `${d} days overdue` : d === 1 ? "1 day overdue" : d === 0 ? "due today" : d === -1 ? "due tomorrow" : `due in ${-d} days`);
+  if (p.output === "summary") {
+    const byPerson: Record<string, number> = {};
+    for (const t of tasks) byPerson[t.assignedTo ?? "Unassigned"] = (byPerson[t.assignedTo ?? "Unassigned"] ?? 0) + 1;
+    const lines = tasks.map((t) => `• ${t.assignedTo ?? "Unassigned"}: ${t.task}${t.customer ? ` (${t.customer})` : ""}, ${when(t.overdueDays)}${t.id ? ` [${t.id}]` : ""}`);
+    return {
+      today,
+      count: tasks.length,
+      overdue: tasks.filter((t) => (t.overdueDays ?? -1) > 0).length,
+      dueToday: tasks.filter((t) => t.overdueDays === 0).length,
+      byPerson,
+      tasks,
+      text: tasks.length ? `${tasks.length} task${tasks.length === 1 ? "" : "s"}:\n${lines.join("\n")}` : "Nothing due. All clear.",
+    };
+  }
+  return tasks.length ? tasks.map((t) => ({ ...t, when: when(t.overdueDays) })) : { none: true, today };
+};
+
 // ---------------------------------------------------------------------------
 // PostgreSQL and SMTP
 // ---------------------------------------------------------------------------
@@ -721,6 +810,7 @@ export const APP_ACTIONS: Record<string, AppAction> = {
   "app.sheets.read": sheetsRead,
   "app.sheets.find": sheetsFind,
   "app.tasks.add": tasksAdd,
+  "app.tasks.due": tasksDue,
   "app.gmail.search": gmailSearch,
   "app.sheets.update": sheetsUpdate,
   "app.postgres.query": postgresQuery,

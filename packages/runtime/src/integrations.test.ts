@@ -1288,3 +1288,48 @@ describe("task log", () => {
     expect(bad.done.error?.message).toMatch(/needs at least Task and Status columns/);
   });
 });
+
+describe("due tasks", () => {
+  it("finds overdue and due-today tasks (any common date format), per person or as one report", async () => {
+    const ws = new ObjectId();
+    const id = await cred(ws, "google", await googleTokens(), { expiresAt: new Date(Date.now() + 3600_000) });
+    const day = (offset: number, fmt: "iso" | "dmy" = "iso") => {
+      const d = new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+      if (fmt === "iso") return d;
+      const [y, m, dd] = d.split("-");
+      return `${dd}/${m}/${y}`;
+    };
+    const tasks = fake.state.sheets[FAKE.spreadsheetId]!.Tasks!;
+    tasks.splice(1, tasks.length - 1,
+      ["T1", "Send quote", "Mehta Traders", "Ravi", "9812345678", "Open", day(-3), "Shadab", ""],
+      ["T2", "Call back", "Gupta", "Asha", "9811112222", "In progress", day(0, "dmy"), "Shadab", ""],
+      ["T3", "Deliver", "Sharma", "Ravi", "9812345678", "Open", day(5), "Shadab", ""],
+      ["T4", "Old one", "Old Client", "Asha", "9811112222", "Done", day(-10), "Shadab", ""],
+      ["T5", "Someday", "", "Ravi", "", "Open", "", "Shadab", ""],
+    );
+    const due = (parameters: Record<string, unknown>) =>
+      run(ws, [
+        { id: "t", type: "trigger.manual", to: { main: ["due"] } },
+        { id: "due", type: "app.tasks.due", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Tasks", timezone: "UTC", ...parameters } },
+      ]);
+
+    const each = (await due({ which: "due", daysAhead: 0, output: "each" })).output("due")!;
+    expect(each.map((t) => [t.id, t.overdueDays, t.when])).toEqual([
+      ["T1", 3, "3 days overdue"],
+      ["T2", 0, "due today"],
+    ]);
+    expect(each[0]).toMatchObject({ assignedTo: "Ravi", phone: "9812345678", customer: "Mehta Traders" });
+    expect((await due({ which: "due", daysAhead: 7, output: "each" })).output("due")!.map((t) => t.id)).toEqual(["T1", "T2", "T3"]);
+    expect((await due({ which: "overdue", output: "each" })).output("due")!.map((t) => t.id)).toEqual(["T1"]);
+    expect((await due({ which: "open", assignee: "ravi", output: "each" })).output("due")!.map((t) => t.id)).toEqual(["T1", "T3", "T5"]);
+
+    const report = (await due({ which: "open", output: "summary" })).output("due")![0]!;
+    expect(report).toMatchObject({ count: 4, overdue: 1, dueToday: 1, byPerson: { Ravi: 3, Asha: 1 } });
+    expect(report.text).toBe(
+      ["4 tasks:", "• Ravi: Send quote (Mehta Traders), 3 days overdue [T1]", "• Asha: Call back (Gupta), due today [T2]", "• Ravi: Deliver (Sharma), due in 5 days [T3]", "• Ravi: Someday, no due date [T5]"].join("\n"),
+    );
+    tasks.splice(1);
+    expect((await due({ which: "due", output: "each" })).output("due")).toEqual([{ none: true, today: day(0) }]);
+    expect((await due({ which: "due", output: "summary" })).output("due")![0]).toMatchObject({ count: 0, text: "Nothing due. All clear." });
+  });
+});

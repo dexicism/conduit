@@ -72,6 +72,31 @@ function REMIND(id: string): TemplateStep {
   };
 }
 
+/** "Update a task" (status, due date, notes) for team agents. */
+function TASK_UPDATE(id: string): TemplateStep {
+  return {
+    id,
+    type: "tool.app.sheets.update",
+    label: "Update a task",
+    parameters: {
+      toolName: "update_task",
+      toolDescription: "Change a task in the Tasks tab, found by its ID (like T12): mark it Done, move the due date, or reassign it. Use when someone reports progress.",
+      sheet: "Tasks",
+      findBy: "value",
+      column: "ID",
+      value: "={{AI('id', `Task ID, e.g. T12`, 'string')}}",
+      match: "equals",
+      columns: [
+        { key: "Status", value: "={{AI('status', `Open, In progress or Done; the current one if unchanged`, 'string')}}" },
+        { key: "Due", value: "={{AI('due', `Due date like 2026-11-28; the current one if unchanged`, 'string')}}" },
+        { key: "Assigned to", value: "={{AI('assignedTo', `Who it's assigned to; the current person if unchanged`, 'string')}}" },
+      ],
+      ifMissing: "fail",
+      ifMany: "fail",
+    },
+  };
+}
+
 /** A "find customers" tool for one of the team agents. */
 function FIND(id: string): TemplateStep {
   return {
@@ -207,7 +232,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
           sessionKey: "${['wa']['chatId']}",
           memoryTurns: 10,
         },
-        tools: ["boss_find", "boss_update", "boss_task", "boss_remind", "boss_send", "boss_everyone", "boss_reminders", "boss_cancel", "boss_team", "boss_mail"],
+        tools: ["boss_find", "boss_update", "boss_task", "boss_taskupdate", "boss_remind", "boss_send", "boss_everyone", "boss_reminders", "boss_cancel", "boss_team", "boss_mail"],
         to: ["reply"],
       },
       {
@@ -223,7 +248,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
           sessionKey: "${['wa']['chatId']}",
           memoryTurns: 10,
         },
-        tools: ["staff_find", "staff_update", "staff_task", "staff_remind"],
+        tools: ["staff_find", "staff_update", "staff_task", "staff_taskupdate", "staff_remind"],
         to: ["reply"],
       },
       {
@@ -283,10 +308,75 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
       TASK("boss_task"),
       REMIND("boss_remind"),
       TASK("staff_task"),
+      TASK_UPDATE("staff_taskupdate"),
+      TASK_UPDATE("boss_taskupdate"),
       REMIND("staff_remind"),
       FIND("staff_find"),
       UPDATE("staff_update"),
       FIND("viewer_find"),
+    ],
+  },
+  {
+    id: "task-nudges",
+    name: "Nudge people about due tasks",
+    description:
+      "Every morning (Monday to Saturday, 10:00), checks the Tasks tab and sends each person a WhatsApp about their tasks that are due today or overdue, asking for an update. No AI needed, so it's free and always works. Their replies go to your team assistant, which can mark tasks done.",
+    apps: ["google", "whatsappWeb"],
+    setup: "Paste your sheet link into the second step, pick your Google account and linked number, and set your time zone in the first two steps.",
+    steps: [
+      { id: "every", type: "trigger.schedule", label: "Every morning", parameters: { mode: "cron", cron: "0 10 * * 1-6" }, to: ["due"] },
+      { id: "due", type: "app.tasks.due", label: "Tasks due or overdue", parameters: { sheet: "Tasks", which: "due", daysAhead: 0, output: "each" }, to: ["hasPhone"] },
+      {
+        id: "hasPhone",
+        type: "flow.filter",
+        label: "Has a phone number",
+        parameters: { conditions: { combinator: "and", rules: [{ id: "r1", left: "${['$input']['phone']}", operator: "isNotEmpty", right: "" }] } },
+        to: ["nudge"],
+      },
+      {
+        id: "nudge",
+        type: "app.whatsappWeb.send",
+        label: "Ask for an update",
+        parameters: {
+          to: "${['$input']['phone']}",
+          text: "Hi ${['$input']['assignedTo']}, quick check on ${['$input']['id']}: \"${['$input']['task']}\" for ${['$input']['customer']}, ${['$input']['when']}. Reply here with an update (done, or a new date).",
+        },
+      },
+    ],
+  },
+  {
+    id: "owner-daily-report",
+    name: "Supervisor: daily report to the owner",
+    description:
+      "Every evening, an AI supervisor reads all open tasks, writes the owner a short report (what's overdue, who's behind, anything stuck or duplicated), and politely messages people whose tasks are more than 2 days late to ask what's happening.",
+    apps: ["google", "whatsappWeb"],
+    needsAi: true,
+    setup: "Paste your sheet link into the second step, pick your Google account and linked number, add a variable OWNER_PHONE with the owner's number (Team & settings, Variables), and set your time zone.",
+    steps: [
+      { id: "every", type: "trigger.schedule", label: "Every evening", parameters: { mode: "cron", cron: "0 19 * * *" }, to: ["open"] },
+      { id: "open", type: "app.tasks.due", label: "All open tasks", parameters: { sheet: "Tasks", which: "open", output: "summary" }, to: ["supervisor"] },
+      {
+        id: "supervisor",
+        type: "ai.agent",
+        label: "Supervisor",
+        parameters: {
+          instructions:
+            "You supervise a small team's tasks. Be fair and specific, never invent facts, and keep messages short and polite. Write in plain WhatsApp text (no markdown headings).",
+          prompt:
+            "Open tasks today (${['$input']['today']}):\n${['$input']['text']}\n\nDetails: ${['$input']['tasks']}\n\n1) For each task more than 2 days overdue, message the person on WhatsApp (their phone is in the details) asking what's holding it up and when it'll be done. 2) Then write the owner a report of at most 10 lines: what's overdue, who's behind, anything that looks stuck or duplicated, and who you messaged.",
+          effort: "medium",
+          memory: "none",
+        },
+        tools: ["ask"],
+        to: ["report"],
+      },
+      {
+        id: "ask",
+        type: "tool.app.whatsappWeb.send",
+        label: "Message a team member",
+        parameters: { toolName: "message_person", toolDescription: "Send a WhatsApp message to one team member about their task.", to: "={{AI('to', `Their phone number`, 'string')}}", text: "={{AI('text', `The message`, 'string')}}", fileSource: "none" },
+      },
+      { id: "report", type: "app.whatsappWeb.send", label: "Send the report to the owner", parameters: { to: "${['$vars']['OWNER_PHONE']}", text: "${['$input']['output']}" } },
     ],
   },
   {
