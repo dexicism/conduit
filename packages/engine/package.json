@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@conduit/core": "0.1.0",
-    "@conduit/nodes": "0.1.0"
+    "@conduit/nodes": "0.1.0",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

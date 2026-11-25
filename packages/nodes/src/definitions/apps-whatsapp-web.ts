@@ -1,4 +1,5 @@
 import type { NodeDefinition, ParamField } from "../types";
+import { documentFields } from "./documents";
 
 const action = {
   version: 1,
@@ -195,7 +196,29 @@ export const whatsappWebBroadcast: NodeDefinition = {
   outputSample: { queued: 3, recipients: ["919812345678@s.whatsapp.net"], invalid: [], lastAt: "2026-11-27T09:00:30.000Z" },
 };
 
+export const whatsappWebSendDocument: NodeDefinition = {
+  ...action,
+  type: "app.whatsappWeb.sendDocument",
+  name: "WhatsApp (linked phone): send a PDF",
+  description: "Make a PDF (quotation, invoice, list) from a title, text and a table, and send it on WhatsApp, in one step. Qty × Price amounts and the total are worked out for you.",
+  icon: "FileText",
+  app: "whatsappWeb",
+  keywords: ["whatsapp", "pdf", "quotation", "quote", "invoice", "document", "send", "file", "estimate"],
+  asTool: {
+    name: "send_document",
+    description: "Make a PDF (like a quotation or invoice) and send it on WhatsApp. Table: lines like 'Item | Qty | Price' then one line per item.",
+  },
+  fields: [
+    credential,
+    { kind: "string", name: "to", label: "To", required: true, placeholder: "+919876543210 or a chat id", aiFill: true },
+    { kind: "string", name: "caption", label: "Message with it", multiline: true, aiFill: true },
+    ...documentFields(true),
+  ],
+  outputSample: { messageId: "3EB0D2F1A9C8B7E6", chatId: "919876543210@s.whatsapp.net", fileName: "quotation-mehta.pdf", pages: 1, total: 10000 },
+};
+
 export const WHATSAPP_WEB_ACTION_DEFINITIONS: NodeDefinition[] = [
+  whatsappWebSendDocument,
   whatsappWebSend,
   whatsappWebSchedule,
   whatsappWebReminders,

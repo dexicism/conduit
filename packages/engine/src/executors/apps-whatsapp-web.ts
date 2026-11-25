@@ -1,6 +1,8 @@
 import type { EngineServices, IntegrationServices } from "../types";
 import { StepError } from "../types";
+import { buildPdf } from "../pdf";
 import { toText } from "../values";
+import { docInputOf, pdfName } from "./documents";
 
 type Json = Record<string, unknown>;
 type Action = (p: Json, services: EngineServices) => Promise<Json | Json[]>;
@@ -194,6 +196,22 @@ const broadcast: Action = async (p, services) => {
   }
 };
 
+/** Builds a PDF (quotation, invoice, list) and sends it, in one step. */
+const sendDocument: Action = async (p, services) => {
+  const id = credentialId(p);
+  const to = toText(p.to).trim();
+  if (!to) throw new StepError("To is empty");
+  const input = docInputOf(p);
+  const pdf = await buildPdf(input);
+  const fileName = pdfName(p.fileName, input.title);
+  try {
+    const r = await wa(services).send(id, { to, text: toText(p.caption), file: { base64: pdf.base64, mimetype: "application/pdf", fileName } });
+    return { messageId: r.messageId, chatId: r.chatId, fileName, pages: pdf.pages, total: pdf.total, ...(pdf.replaced.length ? { replacedCharacters: pdf.replaced } : {}) };
+  } catch (e) {
+    throw new StepError((e as Error).message);
+  }
+};
+
 /** A stored photo or file as base64, e.g. to hand to an AI step or save to Drive. */
 const getMedia: Action = async (p, services) => {
   const mediaId = toText(p.mediaId).trim();
@@ -217,4 +235,5 @@ export const WHATSAPP_WEB_ACTIONS: Record<string, Action> = {
   "app.whatsappWeb.schedule": schedule,
   "app.whatsappWeb.reminders": reminders,
   "app.whatsappWeb.broadcast": broadcast,
+  "app.whatsappWeb.sendDocument": sendDocument,
 };

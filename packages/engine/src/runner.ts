@@ -18,6 +18,7 @@ import {
   type Task,
 } from "./types";
 import { teamCheckExecutor } from "./executors/team";
+import { pdfExecutor } from "./executors/documents";
 import { toNumber } from "./values";
 
 export const MAX_STEPS = 10_000;
@@ -27,6 +28,7 @@ const EXECUTORS: Record<string, Executor> = {
   "flow.filter": filterExecutor,
   "flow.onlyNew": onlyNewExecutor,
   "app.team.check": teamCheckExecutor,
+  "doc.pdf": pdfExecutor,
   "flow.switch": switchExecutor,
   "flow.wait": waitExecutor,
   "core.http": httpExecutor,
