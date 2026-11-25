@@ -86,7 +86,7 @@ describe("AI Agent", () => {
 
     // Tool specs: the AI-fill slot became the HTTP tool's schema.
     expect(seen[0]!.tools!.find((t) => t.name === "weather")!.inputSchema).toMatchObject({ required: ["city"], additionalProperties: false });
-    expect(seen[0]!.system).toBe("Be brief.");
+    expect(seen[0]!.system?.startsWith("Be brief.\n\nIt's now ")).toBe(true);
     // Second request: assistant turn kept verbatim (incl. opaque thinking), then both results in ONE user message.
     const second = seen[1]!.messages;
     expect(second[1]!.content[0]).toEqual({ type: "opaque", raw: { type: "thinking", signature: "abc" } });

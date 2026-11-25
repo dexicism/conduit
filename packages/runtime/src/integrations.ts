@@ -8,7 +8,16 @@ import pg from "pg";
 import { isPrivateAddress } from "./net";
 import { fetchAccountEmail, refreshTokens, type OAuthClient, type TokenSet } from "./oauth";
 import type { SealedSecret, Vault } from "./vault";
-import { listWhatsappWebGroups, readMediaFile, sendWhatsappWeb, whatsappWebStatus } from "./whatsapp-web";
+import {
+  broadcastWhatsappWeb,
+  cancelWhatsappWebReminder,
+  listWhatsappWebGroups,
+  listWhatsappWebReminders,
+  readMediaFile,
+  scheduleWhatsappWeb,
+  sendWhatsappWeb,
+  whatsappWebStatus,
+} from "./whatsapp-web";
 
 // ---------------------------------------------------------------------------
 // Storage
@@ -365,6 +374,10 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
 
   /** Services for one execution. Every secret it opens is added to `secrets` so the runtime can redact it. */
   function servicesFor(workspaceId: ObjectId, secrets: Set<string>): IntegrationServices {
+    const linkedNumber = async (id: string) => {
+      const doc = await find(workspaceId, id);
+      if (!doc || doc.app !== "whatsappWeb") throw new StepError("Choose a linked WhatsApp number");
+    };
     return {
       apiUrl,
       async credential(id, app) {
@@ -388,6 +401,19 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
           return listWhatsappWebGroups(db, workspaceId, id);
         },
         readMedia: (id) => readMediaFile(db, workspaceId, id),
+        async schedule(id, msg) {
+          await linkedNumber(id);
+          return scheduleWhatsappWeb(db, workspaceId, id, msg);
+        },
+        async reminders(id, filter) {
+          await linkedNumber(id);
+          return listWhatsappWebReminders(db, workspaceId, id, filter);
+        },
+        cancelReminder: (reminderId) => cancelWhatsappWebReminder(db, workspaceId, reminderId),
+        async broadcast(id, msg) {
+          await linkedNumber(id);
+          return broadcastWhatsappWeb(db, workspaceId, id, msg);
+        },
       },
     };
   }

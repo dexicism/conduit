@@ -106,6 +106,12 @@ Replies within 24 hours of a customer's message are free-form. After that WhatsA
 
 **Team roles and permissions:** add a **Team** tab to your Google Sheet with the columns Name, Phone, Role and Access (`edit`, `view` or `blocked`; a role like Owner or Boss is the owner). The **Team access check** step looks up whoever's writing (phone numbers match on their digits, so +91 and leading zeros don't matter) and sends them down *allowed* or *denied*, with their name, role and rights attached. The "Team assistant with roles" template uses it so the owner can do everything (including searching email), editors can update customers, everyone else can only ask, and strangers get nothing. Change who's allowed by editing the sheet.
 
+**Tasks, reminders and "tell everyone":**
+- **Task log: add task** writes to a Tasks tab (ID, Task, Customer, Assigned to, Phone, Status, Due, Created by, Created). Before adding, it checks for an open task on the same customer, and if there is one it doesn't add a duplicate; it tells you who's on it ("Ravi is already handling Mehta Traders, due Friday").
+- **WhatsApp (linked phone): send later** schedules a message ("tomorrow 9am", "2026-11-28 18:30", "in 2 hours", in your time zone). If Conduit is off at that moment, it goes out as soon as it's back. **Reminders** lists or cancels them.
+- **WhatsApp (linked phone): send to many** sends one message to a list of numbers, one at a time with a random 5 to 15 second gap, because instant blasts are what get numbers banned. At most 200 at once.
+- AI agents now know today's date and time, so "remind me Friday" works.
+
 **Gmail search** needs permission to read mail, which older connections don't have: press **Reconnect** on the Google account once.
 
 **Everything else** just needs a key pasted under Connections. The connect dialog says where to find it for each app, but roughly:

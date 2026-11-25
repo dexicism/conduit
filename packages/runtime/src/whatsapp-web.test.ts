@@ -307,3 +307,58 @@ describe("WhatsApp on a linked phone", () => {
     }
   }, 120_000);
 });
+
+describe("reminders and sending to many", () => {
+  it("sends a reminder when it's due (not before), lists and cancels them, and spaces out a broadcast", async () => {
+    const ws = new ObjectId();
+    const cred = (await integ.create({ workspaceId: ws, userId, app: "whatsappWeb", label: "Office phone", values: {} }))._id.toHexString();
+    const sockets: FakeSocket[] = [];
+    const wa = startWhatsappWeb(db, rt, {
+      authRoot,
+      syncMs: 60_000,
+      outboxMs: 20,
+      typingDelayMs: [0, 0],
+      socketFactory: async (dir) => {
+        await writeFile(join(dir, "creds.json"), "{}");
+        const s = new FakeSocket();
+        sockets.push(s);
+        return s as unknown as WaSocket;
+      },
+    });
+    try {
+      await requestWhatsappWebLink(db, ws, cred);
+      await wa.tick();
+      await until(() => sockets.length === 1);
+      sockets[0]!.emit("connection.update", { connection: "open" });
+      await until(async () => (await whatsappWebStatus(db, ws, cred)).status === "open");
+      const services = integ.servicesFor(ws, new Set()).whatsappWeb!;
+
+      const soon = await services.schedule(cred, { to: "+91 99000 11122", text: "GST is due today", dueAt: new Date(Date.now() - 1000), createdBy: "Shadab" });
+      const later = await services.schedule(cred, { to: "+91 99000 11122", text: "Call Mehta", dueAt: new Date(Date.now() + 3_600_000) });
+      const cancelMe = await services.schedule(cred, { to: "+91 98123 45678", text: "Ignore", dueAt: new Date(Date.now() + 7_200_000) });
+      expect(soon).toMatchObject({ to: "919900011122@s.whatsapp.net" });
+      expect((await services.reminders(cred, {})).map((r) => r.text)).toEqual(["GST is due today", "Call Mehta", "Ignore"]);
+      expect(await services.cancelReminder(cancelMe.id)).toBe(true);
+      expect(await services.cancelReminder(cancelMe.id)).toBe(false);
+      // Another workspace can't see or cancel them.
+      expect(await integ.servicesFor(new ObjectId(), new Set()).whatsappWeb!.cancelReminder(later.id)).toBe(false);
+
+      await wa.tick();
+      await until(() => sockets[0]!.sent.length === 1);
+      expect(sockets[0]!.sent[0]).toEqual({ jid: "919900011122@s.whatsapp.net", content: { text: "GST is due today" } });
+      expect((await services.reminders(cred, {})).map((r) => r.text)).toEqual(["Call Mehta"]);
+      expect((await services.reminders(cred, { to: "9812345678" })).length).toBe(0);
+
+      // Send to many: duplicates and bad numbers are dropped, and each waits its turn.
+      const b = await services.broadcast(cred, { numbers: ["+91 98123 45678", "919812345678", "hello", "+91 98111 12222"], text: "Meeting at 5", spacingMs: [300, 400] });
+      expect(b).toMatchObject({ queued: 2, invalid: ["hello"] });
+      const start = Date.now();
+      await until(() => sockets[0]!.sent.length === 3);
+      expect(Date.now() - start).toBeGreaterThanOrEqual(250);
+      expect(sockets[0]!.sent.slice(1).map((s) => s.jid)).toEqual(["919812345678@s.whatsapp.net", "919811112222@s.whatsapp.net"]);
+      await expect(services.broadcast(cred, { numbers: Array.from({ length: 201 }, (_, i) => `9190000${String(i).padStart(5, "0")}`), text: "x" })).rejects.toThrow(/more than 200/);
+    } finally {
+      await wa.stop();
+    }
+  }, 120_000);
+});

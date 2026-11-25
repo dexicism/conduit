@@ -245,6 +245,7 @@ describe("app actions", () => {
       { value: "Sheet1", label: "Sheet1" },
       { value: "Archive", label: "Archive" },
       { value: "Team", label: "Team" },
+      { value: "Tasks", label: "Tasks" },
     ]);
 
     const mail = await run(ws, [
@@ -1250,5 +1251,40 @@ describe("team access and owner email", () => {
     expect((await search("")).output("mail")).toHaveLength(2);
     fake.state.gmailCanRead = false;
     expect((await search("x")).done.error?.message).toMatch(/press Reconnect on the Google account/);
+  });
+});
+
+describe("task log", () => {
+  it("adds tasks, and says who's already on a customer instead of doubling up", async () => {
+    const ws = new ObjectId();
+    const id = await cred(ws, "google", await googleTokens(), { expiresAt: new Date(Date.now() + 3600_000) });
+    const add = (parameters: Record<string, unknown>) =>
+      run(ws, [
+        { id: "t", type: "trigger.manual", to: { main: ["task"] } },
+        { id: "task", type: "app.tasks.add", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Tasks", ...parameters } },
+      ]);
+    const tasks = () => fake.state.sheets[FAKE.spreadsheetId]!.Tasks!;
+
+    const clash = await add({ task: "Follow up on quote", customer: "  mehta traders ", assignee: "Asha" });
+    expect(clash.output("task")?.[0]).toMatchObject({
+      status: "conflict",
+      message: 'Ravi is already handling mehta traders ("Send quote"), due 2026-11-28.',
+      existing: { row: 2, id: "T2", assignedTo: "Ravi", status: "Open" },
+    });
+    expect(tasks()).toHaveLength(3);
+
+    // A finished task doesn't block a new one.
+    const fresh = await add({ task: "New order", customer: "Old Client", assignee: "Asha", assigneePhone: "9811112222", due: "2026-12-01", createdBy: "Shadab" });
+    expect(fresh.output("task")?.[0]).toMatchObject({ status: "added", id: "T3", row: 4, Task: "New order", Customer: "Old Client", "Assigned to": "Asha", Status: "Open", Due: "2026-12-01", "Created by": "Shadab" });
+    expect(tasks()[3]![0]).toBe("T3");
+
+    const forced = await add({ task: "Second look", customer: "Mehta Traders", onConflict: "add" });
+    expect(forced.output("task")?.[0]).toMatchObject({ status: "added", Customer: "Mehta Traders" });
+
+    const bad = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["task"] } },
+      { id: "task", type: "app.tasks.add", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Sheet1", task: "x" } },
+    ]);
+    expect(bad.done.error?.message).toMatch(/needs at least Task and Status columns/);
   });
 });

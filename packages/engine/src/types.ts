@@ -121,6 +121,10 @@ export interface IntegrationServices {
     groups(credentialId: string): Promise<Array<{ id: string; name: string; members: number }>>;
     /** A stored photo or file from this workspace, or null. */
     readMedia(id: string): Promise<{ base64: string; mimetype: string; fileName: string | null; size: number } | null>;
+    schedule(credentialId: string, msg: { to: string; text: string; dueAt: Date; createdBy?: string | null }): Promise<{ id: string; to: string; dueAt: string }>;
+    reminders(credentialId: string, filter: { to?: string | null }): Promise<Array<{ id: string; to: string; text: string; dueAt: string; createdBy: string | null }>>;
+    cancelReminder(id: string): Promise<boolean>;
+    broadcast(credentialId: string, msg: { numbers: string[]; text: string; spacingMs?: [number, number] }): Promise<{ queued: number; recipients: string[]; invalid: string[]; lastAt: string }>;
   };
 }
 

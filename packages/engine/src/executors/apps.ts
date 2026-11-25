@@ -410,6 +410,91 @@ const sheetsUpdate: AppAction = async (p, services) => {
 };
 
 // ---------------------------------------------------------------------------
+// Task log (a Tasks tab in a Google Sheet)
+// ---------------------------------------------------------------------------
+
+const DONE = new Set(["done", "closed", "complete", "completed", "cancelled", "canceled", "finished", "resolved"]);
+
+/** Columns of a task log, matched loosely so a hand-made sheet works. */
+function taskColumns(header: string[]) {
+  const find = (...names: string[]) => header.findIndex((h) => names.includes(h.trim().toLowerCase()));
+  return {
+    id: find("id", "task id", "#"),
+    task: find("task", "what", "description", "todo"),
+    customer: find("customer", "client", "about", "party", "company"),
+    assignee: find("assigned to", "assignee", "owner", "who", "employee"),
+    phone: find("phone", "assignee phone", "number"),
+    status: find("status", "state"),
+    due: find("due", "due date", "deadline", "by"),
+    createdBy: find("created by", "assigned by", "from"),
+    created: find("created", "created at", "date"),
+  };
+}
+
+const tasksAdd: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const id = spreadsheetIdOf(p.spreadsheetId);
+  const { header, rows } = await readTable(services, accessToken, id, p.sheet);
+  const col = taskColumns(header);
+  if (col.task < 0 || col.status < 0) throw new StepError(`The task sheet needs at least Task and Status columns. It has: ${header.filter(Boolean).join(", ")}`);
+  const task = toText(p.task).trim();
+  if (!task) throw new StepError("What's the task? It's empty.");
+  const customer = toText(p.customer).trim();
+  const cell = (r: string[], c: number) => (c >= 0 ? (r[c] ?? "").trim() : "");
+
+  // Someone already on it? Same customer (or the same task text if there's no customer), still open.
+  if (p.onConflict !== "add") {
+    const same = rows
+      .map((r, i) => ({ r, row: i + 2 }))
+      .filter(({ r }) => !DONE.has(cell(r, col.status).toLowerCase()))
+      .find(({ r }) => (customer && col.customer >= 0 ? norm(cell(r, col.customer)) === norm(customer) : norm(cell(r, col.task)) === norm(task)));
+    if (same) {
+      const who = cell(same.r, col.assignee) || "someone";
+      return {
+        status: "conflict",
+        message: `${who} is already handling ${customer || "that"}${cell(same.r, col.task) ? ` ("${cell(same.r, col.task)}")` : ""}${cell(same.r, col.due) ? `, due ${cell(same.r, col.due)}` : ""}.`,
+        existing: {
+          row: same.row,
+          id: cell(same.r, col.id) || null,
+          task: cell(same.r, col.task),
+          customer: cell(same.r, col.customer) || null,
+          assignedTo: cell(same.r, col.assignee) || null,
+          phone: cell(same.r, col.phone) || null,
+          status: cell(same.r, col.status),
+          due: cell(same.r, col.due) || null,
+        },
+      };
+    }
+  }
+
+  const taskId = `T${rows.length + 1}`;
+  const now = services.now();
+  const row: string[] = header.map(() => "");
+  const put = (c: number, v: string) => {
+    if (c >= 0) row[c] = v;
+  };
+  put(col.id, taskId);
+  put(col.task, task);
+  put(col.customer, customer);
+  put(col.assignee, toText(p.assignee).trim());
+  put(col.phone, toText(p.assigneePhone).trim());
+  put(col.status, toText(p.initialStatus).trim() || "Open");
+  put(col.due, toText(p.due).trim());
+  put(col.createdBy, toText(p.createdBy).trim());
+  put(col.created, now.toISOString().slice(0, 16).replace("T", " "));
+  const res = await callJson(services, {
+    method: "POST",
+    url: sheetsUrl(id, sheetRange(p.sheet, "A1"), ":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"),
+    headers: { authorization: `Bearer ${accessToken}` },
+    body: { values: [row] },
+  });
+  if (res.status >= 400) throw googleError(res, "Google Sheets");
+  const updatedRange = toText((res.body as { updates?: { updatedRange?: string } }).updates?.updatedRange);
+  const added = Number(/![A-Z]+(\d+)/.exec(updatedRange)?.[1] ?? NaN);
+  return { status: "added", id: taskId, ...rowObject(header, row, Number.isFinite(added) ? added : rows.length + 2) };
+};
+
+// ---------------------------------------------------------------------------
 // PostgreSQL and SMTP
 // ---------------------------------------------------------------------------
 
@@ -635,6 +720,7 @@ export const APP_ACTIONS: Record<string, AppAction> = {
   "app.sheets.append": sheetsAppend,
   "app.sheets.read": sheetsRead,
   "app.sheets.find": sheetsFind,
+  "app.tasks.add": tasksAdd,
   "app.gmail.search": gmailSearch,
   "app.sheets.update": sheetsUpdate,
   "app.postgres.query": postgresQuery,

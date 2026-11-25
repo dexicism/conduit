@@ -91,6 +91,11 @@ function freshState(): FakeState {
           ["Asha", "9811112222", "Intern", "view"],
           ["Old hand", "9800000000", "Sales", "blocked"],
         ],
+        Tasks: [
+          ["ID", "Task", "Customer", "Assigned to", "Phone", "Status", "Due", "Created by", "Created"],
+          ["T2", "Send quote", "Mehta Traders", "Ravi", "9812345678", "Open", "2026-11-28", "Shadab", "2026-11-25 10:00"],
+          ["T3", "Collect payment", "Old Client", "Asha", "9811112222", "Done", "2026-11-20", "Shadab", "2026-11-18 10:00"],
+        ],
       },
     },
     sentMail: [],

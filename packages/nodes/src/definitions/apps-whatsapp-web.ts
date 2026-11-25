@@ -128,4 +128,78 @@ export const whatsappWebGroups: NodeDefinition = {
   outputSample: { chatId: "120363042712345678@g.us", name: "Sales team", members: 8 },
 };
 
-export const WHATSAPP_WEB_ACTION_DEFINITIONS: NodeDefinition[] = [whatsappWebSend, whatsappWebGetMedia, whatsappWebGroups];
+export const whatsappWebSchedule: NodeDefinition = {
+  ...action,
+  type: "app.whatsappWeb.schedule",
+  name: "WhatsApp (linked phone): send later",
+  description: "Schedule a message for later, e.g. a reminder to the owner on Friday at 9. If Conduit is off at that time, it goes out as soon as it's back.",
+  icon: "AlarmClock",
+  app: "whatsappWeb",
+  keywords: ["whatsapp", "remind", "reminder", "later", "schedule", "follow up", "alarm"],
+  asTool: { name: "set_reminder", description: "Send a WhatsApp message later. When: a date and time like 2026-11-28 09:00, tomorrow 9am, or in 2 hours." },
+  fields: [
+    credential,
+    { kind: "string", name: "to", label: "To", required: true, placeholder: "+919876543210 or a chat id", aiFill: true },
+    { kind: "string", name: "text", label: "Message", required: true, multiline: true, aiFill: true },
+    { kind: "string", name: "when", label: "When", required: true, aiFill: true, placeholder: "tomorrow 9am", description: "2026-11-28 09:00, tomorrow 9am, today 18:30, or in 2 hours." },
+    { kind: "string", name: "timezone", label: "Time zone", expression: false, placeholder: "The server's (e.g. Asia/Kolkata)" },
+    { kind: "string", name: "createdBy", label: "Set by", placeholder: "${['$input']['person']['name']}" },
+  ],
+  outputSample: { reminderId: "6b04a1c2e3f4a5b6c7d8e9f0", to: "919876543210@s.whatsapp.net", dueAt: "2026-11-28T03:30:00.000Z", dueLocal: "28 Nov 2026, 09:00", timezone: "Asia/Kolkata" },
+};
+
+export const whatsappWebReminders: NodeDefinition = {
+  ...action,
+  type: "app.whatsappWeb.reminders",
+  name: "WhatsApp (linked phone): reminders",
+  description: "List the messages scheduled for later (optionally for one person), or cancel one by its ID.",
+  icon: "AlarmClock",
+  app: "whatsappWeb",
+  keywords: ["whatsapp", "reminders", "scheduled", "cancel", "list"],
+  asTool: { name: "manage_reminders", description: "List scheduled WhatsApp reminders, or cancel one by ID (action: list or cancel)." },
+  fields: [
+    credential,
+    {
+      kind: "select",
+      name: "action",
+      label: "Action",
+      default: "list",
+      options: [
+        { value: "list", label: "List the pending ones" },
+        { value: "cancel", label: "Cancel one" },
+      ],
+    },
+    { kind: "string", name: "to", label: "Only for", placeholder: "Optional phone number", aiFill: true, showIf: { field: "action", equals: ["list"] } },
+    { kind: "string", name: "reminderId", label: "Reminder ID", required: true, aiFill: true, showIf: { field: "action", equals: ["cancel"] } },
+  ],
+  outputSample: { found: true, id: "6b04a1c2e3f4a5b6c7d8e9f0", to: "919876543210@s.whatsapp.net", text: "GST payment is due today", dueAt: "2026-11-28T03:30:00.000Z", createdBy: "Shadab" },
+};
+
+export const whatsappWebBroadcast: NodeDefinition = {
+  ...action,
+  type: "app.whatsappWeb.broadcast",
+  name: "WhatsApp (linked phone): send to many",
+  description:
+    "The same message to a list of people, one by one with a random gap between them (5 to 15 seconds by default), because instant blasts get numbers banned. At most 200 at a time.",
+  icon: "Megaphone",
+  app: "whatsappWeb",
+  keywords: ["whatsapp", "broadcast", "everyone", "team", "announce", "bulk", "send to all"],
+  asTool: { name: "message_everyone", description: "Send one WhatsApp message to several phone numbers (comma separated)." },
+  fields: [
+    credential,
+    { kind: "string", name: "numbers", label: "Phone numbers", required: true, multiline: true, aiFill: true, placeholder: "+919812345678, +919811112222", description: "Separated by commas or lines, or a list from another step." },
+    { kind: "string", name: "text", label: "Message", required: true, multiline: true, aiFill: true },
+    { kind: "number", name: "minGapSeconds", label: "Gap at least (seconds)", default: 5, min: 2, max: 600 },
+    { kind: "number", name: "maxGapSeconds", label: "Gap at most (seconds)", default: 15, min: 2, max: 600 },
+  ],
+  outputSample: { queued: 3, recipients: ["919812345678@s.whatsapp.net"], invalid: [], lastAt: "2026-11-27T09:00:30.000Z" },
+};
+
+export const WHATSAPP_WEB_ACTION_DEFINITIONS: NodeDefinition[] = [
+  whatsappWebSend,
+  whatsappWebSchedule,
+  whatsappWebReminders,
+  whatsappWebBroadcast,
+  whatsappWebGetMedia,
+  whatsappWebGroups,
+];

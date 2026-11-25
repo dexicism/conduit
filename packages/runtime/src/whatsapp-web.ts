@@ -215,9 +215,27 @@ export interface WaOutboxDoc {
   text: string | null;
   file: { data: Binary; mimetype: string; fileName: string | null } | null;
   status: "pending" | "sending" | "sent" | "failed";
+  /** Don't send before this (spacing out a "send to everyone"). */
+  notBefore?: Date | null;
+  /** Set for messages that came from a reminder or a broadcast. */
+  source?: "reminder" | "broadcast" | null;
   result: { messageId: string; chatId: string } | null;
   error: string | null;
   createdAt: Date;
+}
+
+/** A message to send later ("remind the owner on Friday about GST"). */
+export interface ReminderDoc {
+  _id?: ObjectId;
+  workspaceId: ObjectId;
+  credentialId: string;
+  to: string;
+  text: string;
+  dueAt: Date;
+  status: "pending" | "sent" | "canceled";
+  createdBy: string | null;
+  createdAt: Date;
+  sentAt: Date | null;
 }
 
 export interface MediaFileDoc {
@@ -235,6 +253,7 @@ export function whatsappWebCollections(db: Db) {
     sessions: db.collection<WaSessionDoc>("whatsapp_web_sessions"),
     outbox: db.collection<WaOutboxDoc>("whatsapp_web_outbox"),
     media: db.collection<MediaFileDoc>("media_files"),
+    reminders: db.collection<ReminderDoc>("whatsapp_web_reminders"),
   };
 }
 
@@ -243,6 +262,10 @@ export async function ensureWhatsappWebIndexes(db: Db) {
   await Promise.all([
     c.sessions.createIndex({ credentialId: 1 }, { unique: true }),
     c.outbox.createIndex({ credentialId: 1, status: 1, createdAt: 1 }),
+    c.reminders.createIndex({ status: 1, dueAt: 1 }),
+    c.reminders.createIndex({ workspaceId: 1, credentialId: 1, status: 1, dueAt: 1 }),
+    // Sent and canceled reminders are forgotten after 30 days.
+    c.reminders.createIndex({ sentAt: 1 }, { expireAfterSeconds: 30 * 86_400 }),
     c.outbox.createIndex({ createdAt: 1 }, { expireAfterSeconds: 7 * 86_400 }),
     // Photos and files people send are kept for 30 days.
     c.media.createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 86_400 }),
@@ -304,6 +327,77 @@ export async function readMediaFile(db: Db, workspaceId: ObjectId, id: string): 
   const doc = await whatsappWebCollections(db).media.findOne({ _id: new ObjectId(id), workspaceId });
   if (!doc) return null;
   return { base64: Buffer.from(doc.data.buffer).toString("base64"), mimetype: doc.mimetype, fileName: doc.fileName, size: doc.size };
+}
+
+/** Saves a message to send at `dueAt`. The worker that holds the number sends it then (or as soon as it's back, if it was off). */
+export async function scheduleWhatsappWeb(db: Db, workspaceId: ObjectId, credentialId: string, input: { to: string; text: string; dueAt: Date; createdBy?: string | null }) {
+  const to = toJid(input.to);
+  const text = input.text.trim();
+  if (!text) throw new Error("The message is empty");
+  const { insertedId } = await whatsappWebCollections(db).reminders.insertOne({
+    workspaceId,
+    credentialId,
+    to,
+    text,
+    dueAt: input.dueAt,
+    status: "pending",
+    createdBy: input.createdBy ?? null,
+    createdAt: new Date(),
+    sentAt: null,
+  });
+  return { id: insertedId.toHexString(), to, dueAt: input.dueAt.toISOString() };
+}
+
+export async function listWhatsappWebReminders(db: Db, workspaceId: ObjectId, credentialId: string, filter: { to?: string | null } = {}) {
+  const q: Record<string, unknown> = { workspaceId, credentialId, status: "pending" };
+  if (filter.to?.trim()) q.to = toJid(filter.to);
+  const docs = await whatsappWebCollections(db).reminders.find(q).sort({ dueAt: 1 }).limit(100).toArray();
+  return docs.map((d) => ({ id: d._id!.toHexString(), to: d.to, text: d.text, dueAt: d.dueAt.toISOString(), createdBy: d.createdBy }));
+}
+
+export async function cancelWhatsappWebReminder(db: Db, workspaceId: ObjectId, id: string): Promise<boolean> {
+  if (!ObjectId.isValid(id)) return false;
+  const r = await whatsappWebCollections(db).reminders.updateOne({ _id: new ObjectId(id), workspaceId, status: "pending" }, { $set: { status: "canceled", sentAt: new Date() } });
+  return r.modifiedCount === 1;
+}
+
+/**
+ * The same message to many people, spaced out by a random gap so it doesn't
+ * look like a blast (blasts are the fastest way to get a number banned).
+ */
+export async function broadcastWhatsappWeb(
+  db: Db,
+  workspaceId: ObjectId,
+  credentialId: string,
+  input: { numbers: string[]; text: string; spacingMs?: [number, number] },
+) {
+  const c = whatsappWebCollections(db);
+  const text = input.text.trim();
+  if (!text) throw new Error("The message is empty");
+  const [min, max] = input.spacingMs ?? [5000, 15000];
+  const seen = new Set<string>();
+  const valid: string[] = [];
+  const invalid: string[] = [];
+  for (const n of input.numbers) {
+    if (!n.trim()) continue;
+    try {
+      const jid = toJid(n);
+      if (!seen.has(jid)) {
+        seen.add(jid);
+        valid.push(jid);
+      }
+    } catch {
+      invalid.push(n.trim());
+    }
+  }
+  if (valid.length > 200) throw new Error("That's more than 200 people at once. Split it up: big blasts get numbers banned.");
+  let at = Date.now();
+  const docs: WaOutboxDoc[] = valid.map((to, i) => {
+    if (i > 0) at += min + Math.random() * Math.max(0, max - min);
+    return { credentialId, workspaceId, to, text, file: null, status: "pending", notBefore: new Date(at), source: "broadcast", result: null, error: null, createdAt: new Date() };
+  });
+  if (docs.length) await c.outbox.insertMany(docs);
+  return { queued: valid.length, recipients: valid, invalid, lastAt: new Date(at).toISOString() };
 }
 
 export async function listWhatsappWebGroups(db: Db, workspaceId: ObjectId, credentialId: string) {
@@ -581,7 +675,7 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
     try {
       for (;;) {
         const job = await c.outbox.findOneAndUpdate(
-          { credentialId: l.credentialId, status: "pending" },
+          { credentialId: l.credentialId, status: "pending", $or: [{ notBefore: null }, { notBefore: { $lte: new Date() } }] },
           { $set: { status: "sending" } },
           { sort: { createdAt: 1 }, returnDocument: "after" },
         );
@@ -686,11 +780,27 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
     }
   }
 
+  /** Reminders that are due go into the outbox of the number that owns them. */
+  async function fireReminders() {
+    const owned = [...local.keys()];
+    if (!owned.length) return;
+    for (;;) {
+      const r = await c.reminders.findOneAndUpdate(
+        { credentialId: { $in: owned }, status: "pending", dueAt: { $lte: new Date() } },
+        { $set: { status: "sent", sentAt: new Date() } },
+        { sort: { dueAt: 1 }, returnDocument: "after" },
+      );
+      if (!r) break;
+      await c.outbox.insertOne({ credentialId: r.credentialId, workspaceId: r.workspaceId, to: r.to, text: r.text, file: null, status: "pending", source: "reminder", result: null, error: null, createdAt: new Date() });
+    }
+  }
+
   const tick = async () => {
     if (stopped) return;
     try {
       await sync();
       await unlinkRequests();
+      await fireReminders();
     } catch (e) {
       console.error("[whatsapp-web] sync failed", (e as Error).message);
     }

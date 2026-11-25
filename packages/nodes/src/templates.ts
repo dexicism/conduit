@@ -34,6 +34,44 @@ export interface WorkflowTemplate {
 const TEAM_PROMPT =
   "You're the team's assistant on WhatsApp. Customer records are in the Customers tab of the Google Sheet; use your tools to look them up or change them, and never make up data. Reply briefly in the language the person writes in.";
 
+/** "Add a task" with the conflict check, for team agents. */
+function TASK(id: string): TemplateStep {
+  return {
+    id,
+    type: "tool.app.tasks.add",
+    label: "Add a task",
+    parameters: {
+      toolName: "add_task",
+      toolDescription: "Add a task to the Tasks tab and assign it. If someone already has an open task for that customer, it returns status conflict and who it is: tell the person instead of adding.",
+      sheet: "Tasks",
+      task: "={{AI('task', `What needs doing`, 'string')}}",
+      customer: "={{AI('customer', `Customer it's about, if any`, 'string')}}",
+      assignee: "={{AI('assignee', `Name of the person it's for`, 'string')}}",
+      assigneePhone: "={{AI('phone', `Their phone number, from the Team tab`, 'string')}}",
+      due: "={{AI('due', `Due date like 2026-11-28, or empty`, 'string')}}",
+      createdBy: "${['who']['person']['name']}",
+      onConflict: "report",
+    },
+  };
+}
+
+/** "Send this later" for team agents. */
+function REMIND(id: string): TemplateStep {
+  return {
+    id,
+    type: "tool.app.whatsappWeb.schedule",
+    label: "Set a reminder",
+    parameters: {
+      toolName: "set_reminder",
+      toolDescription: "Send a WhatsApp message later, e.g. remind the owner on Friday. When: 2026-11-28 09:00, tomorrow 9am, or in 2 hours.",
+      to: "={{AI('to', `Phone number to remind, international format`, 'string')}}",
+      text: "={{AI('text', `The reminder message`, 'string')}}",
+      when: "={{AI('when', `When to send it`, 'string')}}",
+      createdBy: "${['who']['person']['name']}",
+    },
+  };
+}
+
 /** A "find customers" tool for one of the team agents. */
 function FIND(id: string): TemplateStep {
   return {
@@ -134,11 +172,11 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
     id: "team-assistant",
     name: "Team assistant with roles",
     description:
-      "One WhatsApp number for your whole team. It checks who's writing against a Team tab in your Google Sheet: the owner can look things up, update customers, message anyone and search email; editors can look up and update; everyone else can only ask. Strangers are ignored.",
+      "One WhatsApp number for your whole team. It checks who's writing against a Team tab in your Google Sheet: the owner can look things up, update customers, assign tasks (it tells you if someone's already on it), set reminders, message one person or everyone, and search email; editors can look up, update, add tasks and set reminders; everyone else can only ask. Strangers are ignored.",
     apps: ["whatsappWeb", "google"],
     needsAi: true,
     setup:
-      "In your Google Sheet, add a Team tab with the columns Name, Phone, Role and Access (edit, view or blocked; a role of Owner or Boss is the owner), and a Customers tab. Paste the sheet link into the access check and every sheet tool, and pick your linked number and Google account in each step.",
+      "In your Google Sheet, add a Team tab with the columns Name, Phone, Role and Access (edit, view or blocked; a role of Owner or Boss is the owner), a Customers tab, and a Tasks tab with ID, Task, Customer, Assigned to, Phone, Status, Due, Created by, Created. Paste the sheet link into the access check and every sheet tool, and pick your linked number and Google account in each step.",
     steps: [
       { id: "wa", type: "trigger.whatsappWeb", label: "WhatsApp message", parameters: { chats: "all", groupMode: "mentioned" }, to: ["who"] },
       { id: "who", type: "app.team.check", label: "Who is this?", parameters: { sheet: "Team", allow: "known" }, routes: { allowed: ["owner"] } },
@@ -161,7 +199,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
         type: "ai.agent",
         label: "Owner's assistant",
         parameters: {
-          instructions: `${TEAM_PROMPT} You're talking to the owner. You can look up and update customers, send WhatsApp messages to anyone they ask you to, and search their email. Before sending a message to someone else, say exactly what you'll send.`,
+          instructions: `${TEAM_PROMPT} You're talking to the owner. You can look up and update customers, add and assign tasks (the task log warns you if someone's already on it: then tell the owner who), set reminders, message one person or the whole team, and search their email. Before messaging anyone else, say exactly what you'll send.`,
           prompt: "${['$input']['person']['name']} (owner) wrote: ${['wa']['text']}",
           image: "${['wa']['media']['id']}",
           effort: "medium",
@@ -169,7 +207,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
           sessionKey: "${['wa']['chatId']}",
           memoryTurns: 10,
         },
-        tools: ["boss_find", "boss_update", "boss_send", "boss_mail"],
+        tools: ["boss_find", "boss_update", "boss_task", "boss_remind", "boss_send", "boss_everyone", "boss_reminders", "boss_cancel", "boss_team", "boss_mail"],
         to: ["reply"],
       },
       {
@@ -177,7 +215,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
         type: "ai.agent",
         label: "Staff assistant",
         parameters: {
-          instructions: `${TEAM_PROMPT} You're talking to a team member who may update customer records. Only change what they clearly asked for.`,
+          instructions: `${TEAM_PROMPT} You're talking to a team member who may update customer records, add tasks and set reminders. Only change what they clearly asked for. If a task is already someone else's, tell them who's handling it.`,
           prompt: "${['$input']['person']['name']} (${['$input']['person']['role']}) wrote: ${['wa']['text']}",
           image: "${['wa']['media']['id']}",
           effort: "low",
@@ -185,7 +223,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
           sessionKey: "${['wa']['chatId']}",
           memoryTurns: 10,
         },
-        tools: ["staff_find", "staff_update"],
+        tools: ["staff_find", "staff_update", "staff_task", "staff_remind"],
         to: ["reply"],
       },
       {
@@ -218,6 +256,34 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
         label: "Search email",
         parameters: { toolName: "search_email", toolDescription: "Search the owner's Gmail, e.g. from:mehta newer_than:7d.", query: "={{AI('query', `Gmail search, e.g. from:mehta is:unread`, 'string')}}", limit: 5 },
       },
+      {
+        id: "boss_everyone",
+        type: "tool.app.whatsappWeb.broadcast",
+        label: "Message several people",
+        parameters: { toolName: "message_everyone", toolDescription: "Send one WhatsApp message to several people (comma separated numbers, e.g. everyone in the Team tab).", numbers: "={{AI('numbers', `Comma separated phone numbers`, 'string')}}", text: "={{AI('text', `The message`, 'string')}}", minGapSeconds: 5, maxGapSeconds: 15 },
+      },
+      {
+        id: "boss_reminders",
+        type: "tool.app.whatsappWeb.reminders",
+        label: "See reminders",
+        parameters: { toolName: "list_reminders", toolDescription: "List the reminders that are scheduled and not sent yet, with their IDs.", action: "list", to: "" },
+      },
+      {
+        id: "boss_cancel",
+        type: "tool.app.whatsappWeb.reminders",
+        label: "Cancel a reminder",
+        parameters: { toolName: "cancel_reminder", toolDescription: "Cancel a scheduled reminder by its ID (get IDs with list_reminders).", action: "cancel", reminderId: "={{AI('reminderId', `The reminder's ID`, 'string')}}" },
+      },
+      {
+        id: "boss_team",
+        type: "tool.app.sheets.find",
+        label: "Look up the team",
+        parameters: { toolName: "find_team", toolDescription: "Look people up in the Team tab (Name, Phone, Role). Search Role for a value like Sales, or Name.", sheet: "Team", column: "={{AI('column', `Name, Role or Phone`, 'string')}}", value: "={{AI('value', `What to look for; use a space to list everyone`, 'string')}}", match: "contains", limit: 50 },
+      },
+      TASK("boss_task"),
+      REMIND("boss_remind"),
+      TASK("staff_task"),
+      REMIND("staff_remind"),
       FIND("staff_find"),
       UPDATE("staff_update"),
       FIND("viewer_find"),

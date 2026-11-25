@@ -59,6 +59,13 @@ async function imageBlocks(ctx: ExecContext, p: Record<string, unknown>): Promis
   return [{ type: "image", mimetype, base64: base64.replace(/\s/g, "") }];
 }
 
+/** Agents need today's date for "remind me Friday" or "overdue since Monday". */
+function withNow(instructions: string, now: Date): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const when = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeStyle: "short", timeZone: tz }).format(now);
+  return `${instructions ? `${instructions}\n\n` : ""}It's now ${when} (${tz}).`;
+}
+
 /** Single structured call: the reply is JSON matching `schema`. */
 async function structured(
   ctx: ExecContext,
@@ -393,7 +400,7 @@ export const agentExecutor: Executor = async (ctx) => {
     for (let round = 0; round <= maxRounds; round++) {
       const res = await llm.chat({
         model: modelOf(p),
-        system: toText(p.instructions) || undefined,
+        system: withNow(toText(p.instructions), ctx.services.now()),
         messages,
         tools: tools.length ? tools.map((t) => t.spec) : undefined,
         effort,

@@ -249,6 +249,39 @@ export const sheetsRead: NodeDefinition = {
   outputSample: { row: 2, Name: "Ana", Email: "ana@example.com" },
 };
 
+export const tasksAdd: NodeDefinition = {
+  ...action,
+  type: "app.tasks.add",
+  name: "Task log: add task",
+  description:
+    "Add a task to a Tasks tab in your Google Sheet (columns like ID, Task, Customer, Assigned to, Phone, Status, Due, Created by, Created). First checks whether someone already has an open task for the same customer: then nothing is added and you get status = conflict with who's on it.",
+  icon: "ListTodo",
+  app: "google",
+  keywords: ["task", "todo", "assign", "log", "conflict", "duplicate", "follow up", "team"],
+  asTool: { name: "add_task", description: "Add a task to the team's task log. If someone already has an open task for that customer, it says who instead of adding one." },
+  fields: [
+    ...sheetFields().map((f): ParamField => (f.name === "sheet" && f.kind === "string" ? { ...f, default: "Tasks" } : f)),
+    { kind: "string", name: "task", label: "Task", required: true, aiFill: true, placeholder: "Call Mehta about the quote" },
+    { kind: "string", name: "customer", label: "Customer", aiFill: true, description: "Used for the duplicate check. Without it, the task text is compared instead." },
+    { kind: "string", name: "assignee", label: "Assigned to", aiFill: true, placeholder: "Ravi" },
+    { kind: "string", name: "assigneePhone", label: "Their phone", aiFill: true },
+    { kind: "string", name: "due", label: "Due", aiFill: true, placeholder: "2026-12-01" },
+    { kind: "string", name: "createdBy", label: "Created by", placeholder: "${['$input']['person']['name']}" },
+    { kind: "string", name: "initialStatus", label: "Status", default: "Open", expression: false },
+    {
+      kind: "select",
+      name: "onConflict",
+      label: "If someone's already on it",
+      default: "report",
+      options: [
+        { value: "report", label: "Don't add; say who has it (status = conflict)" },
+        { value: "add", label: "Add it anyway" },
+      ],
+    },
+  ],
+  outputSample: { status: "added", id: "T12", row: 13, Task: "Call Mehta about the quote", Customer: "Mehta Traders", "Assigned to": "Ravi", Status: "Open", Due: "2026-12-01" },
+};
+
 export const gmailSearch: NodeDefinition = {
   ...action,
   type: "app.gmail.search",
@@ -556,6 +589,7 @@ export const APP_ACTION_DEFINITIONS: readonly NodeDefinition[] = [
   sheetsFind,
   sheetsUpdate,
   gmailSearch,
+  tasksAdd,
   driveSave,
   driveFind,
   driveRead,
