@@ -113,6 +113,13 @@ export interface IntegrationServices {
   apiUrl(url: string): string;
   sqlQuery(cfg: Record<string, string>, sql: string, values: unknown[], timeoutMs: number): Promise<SqlResult>;
   sendMail(cfg: Record<string, string>, msg: MailMessage): Promise<{ messageId: string; accepted: string[]; rejected: string[] }>;
+  /** WhatsApp on a linked phone. Undefined where it isn't available. */
+  whatsappWeb?: {
+    send(credentialId: string, msg: { to: string; text?: string | null; file?: { base64: string; mimetype: string; fileName?: string | null } | null }): Promise<{ messageId: string; chatId: string }>;
+    groups(credentialId: string): Promise<Array<{ id: string; name: string; members: number }>>;
+    /** A stored photo or file from this workspace, or null. */
+    readMedia(id: string): Promise<{ base64: string; mimetype: string; fileName: string | null; size: number } | null>;
+  };
 }
 
 /** Side effects the engine needs, injected so the engine stays testable. */

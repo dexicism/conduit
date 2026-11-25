@@ -48,6 +48,8 @@ export default defineConfig({
       CONDUIT_WORKER: "inprocess",
       // Deterministic rule-based model: exercises every AI code path without an API key or cost.
       AI_PROVIDER: "fake",
+      // No real WhatsApp connections from tests.
+      WHATSAPP_WEB: "0",
       CONDUIT_FAKE_APIS_URL: FAKE_APIS_URL,
       CONDUIT_ENCRYPTION_KEY: "v1:ZTJlLW9ubHktZW5jcnlwdGlvbi1rZXktMzItYnl0ZXM=",
       CONNECT_GOOGLE_CLIENT_ID: "fake-google-client-id",

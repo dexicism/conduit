@@ -1,10 +1,11 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleHelp, CopyIcon, InboxIcon, KeyRoundIcon, Loader2Icon, PencilIcon, PlugIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
+import { CircleHelp, CopyIcon, InboxIcon, KeyRoundIcon, Loader2Icon, PencilIcon, PlugIcon, RefreshCwIcon, SmartphoneIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ConnectDialog, type OAuthDoneMessage } from "@/components/connections/connect-dialog";
+import { WhatsappWebDialog } from "@/components/connections/whatsapp-web-dialog";
 import { ICONS } from "@/components/editor/node-visuals";
 import {
   AlertDialog,
@@ -41,6 +42,7 @@ export function ConnectionsView() {
   const [renaming, setRenaming] = useState<CredentialView | null>(null);
   const [editingKeys, setEditingKeys] = useState<CredentialView | null>(null);
   const [whatsappSetup, setWhatsappSetup] = useState<CredentialView | null>(null);
+  const [phoneLink, setPhoneLink] = useState<{ cred: CredentialView; auto: boolean } | null>(null);
   const [removing, setRemoving] = useState<{ cred: CredentialView; inUse?: string } | null>(null);
 
   const [reconnecting, setReconnecting] = useState<string | null>(null);
@@ -161,7 +163,12 @@ export function ConnectionsView() {
                         <InboxIcon data-icon="inline-start" /> Receive messages
                       </Button>
                     )}
-                    {app?.auth.kind === "fields" && (
+                    {c.app === "whatsappWeb" && (
+                      <Button variant="outline" size="sm" onClick={() => setPhoneLink({ cred: c, auto: false })}>
+                        <SmartphoneIcon data-icon="inline-start" /> {c.account ? "Linked phone" : "Link phone"}
+                      </Button>
+                    )}
+                    {app?.auth.kind === "fields" && app.auth.fields.length > 0 && (
                       <Button variant="ghost" size="icon-sm" aria-label={`Update keys for ${c.label}`} title="Update keys" onClick={() => setEditingKeys(c)}>
                         <KeyRoundIcon />
                       </Button>
@@ -211,6 +218,11 @@ export function ConnectionsView() {
         onOpenChange={(o) => !o && setConnecting(null)}
         onConnected={(c) => {
           setConnecting(null);
+          if (c.app === "whatsappWeb") {
+            // Saved; now link the phone.
+            setPhoneLink({ cred: { id: c.id, app: c.app, label: c.label } as CredentialView, auto: true });
+            return;
+          }
           toast.success(`${c.label} connected`);
         }}
       />
@@ -223,6 +235,7 @@ export function ConnectionsView() {
           toast.success(`${c.label} updated`);
         }}
       />
+      <WhatsappWebDialog cred={phoneLink?.cred ?? null} autoLink={phoneLink?.auto} onClose={() => setPhoneLink(null)} />
       <WhatsappSetupDialog cred={whatsappSetup} publicUrl={q.data?.publicUrl ?? ""} onClose={() => setWhatsappSetup(null)} />
       <RenameDialog cred={renaming} onClose={() => setRenaming(null)} />
       <AlertDialog open={removing !== null} onOpenChange={(o) => !o && !remove.isPending && setRemoving(null)}>

@@ -24,6 +24,9 @@ MongoDB, running as a replica set (publishing uses transactions). Everything tha
 | `jobs` | the work queue: `runAt`, `status`, `lockedUntil` (the lease), `attempts` |
 | `builder_conversations` | chat history with the AI builder, per workflow |
 | `agent_memory` | the last N turns per agent step and conversation id |
+| `whatsapp_web_sessions` | one per linked WhatsApp number: status (QR, open, logged out), the current QR code, phone, groups, and which worker holds it (a lease, so two workers never open the same session). The login files themselves are on disk in `.data/whatsapp-web/<connection id>` |
+| `whatsapp_web_outbox` | messages steps want to send from a linked number; the worker that holds the session sends them in order. Gone after 7 days |
+| `media_files` | photos and files received on a linked number, up to 10 MB each, so later steps can read or forward them. Expire after 30 days |
 | `seen_items` | what each "Only new items" step has already let through (hashed keys). Only live runs add to it; entries expire after 180 days. Incoming WhatsApp message ids go here too, so Meta's retries don't start a second run |
 | `variables` | workspace variables (`${['$vars']['NAME']}`). Secret values are encrypted the same way as saved accounts |
 

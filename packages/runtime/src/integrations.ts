@@ -8,6 +8,7 @@ import pg from "pg";
 import { isPrivateAddress } from "./net";
 import { fetchAccountEmail, refreshTokens, type OAuthClient, type TokenSet } from "./oauth";
 import type { SealedSecret, Vault } from "./vault";
+import { listWhatsappWebGroups, readMediaFile, sendWhatsappWeb, whatsappWebStatus } from "./whatsapp-web";
 
 // ---------------------------------------------------------------------------
 // Storage
@@ -228,7 +229,7 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
 
   /** Apps that can be connected on this server. OAuth apps need client credentials. */
   function availableApps(): string[] {
-    const ids = ["telegram", "slack", "whatsapp", "google", "notion", "airtable", "discord", "github", "trello", "todoist", "mailchimp", "ntfy", "postgres", "smtp", "httpHeader"];
+    const ids = ["telegram", "slack", "whatsappWeb", "whatsapp", "google", "notion", "airtable", "discord", "github", "trello", "todoist", "mailchimp", "ntfy", "postgres", "smtp", "httpHeader"];
     return ids.filter((id) => {
       const app = getApp(id)!;
       return app.auth.kind === "fields" || Boolean(cfg.oauthClients[app.auth.provider]);
@@ -375,6 +376,19 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
       async sendMail(conf, msg) {
         return (await sendSmtp(conf, msg, cfg.allowPrivateNetwork))!;
       },
+      whatsappWeb: {
+        async send(id, msg) {
+          const doc = await find(workspaceId, id);
+          if (!doc || doc.app !== "whatsappWeb") throw new StepError("Choose a linked WhatsApp number");
+          return sendWhatsappWeb(db, workspaceId, id, msg);
+        },
+        async groups(id) {
+          const doc = await find(workspaceId, id);
+          if (!doc || doc.app !== "whatsappWeb") throw new StepError("Choose a linked WhatsApp number");
+          return listWhatsappWebGroups(db, workspaceId, id);
+        },
+        readMedia: (id) => readMediaFile(db, workspaceId, id),
+      },
     };
   }
 
@@ -403,6 +417,9 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
         if (!b?.ok) throw new StepError(`Slack: ${b?.error ?? `status ${res.status}`}`);
         return b.team ? `${b.user ?? "bot"} in ${b.team}` : null;
       }
+      case "whatsappWeb":
+        // Linked by QR code after it's saved; see whatsapp-web.ts.
+        return null;
       case "whatsapp": {
         const res = await callApi({
           method: "GET",
@@ -487,8 +504,15 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
     let account = doc.account;
     const secrets = new Set<string>();
     try {
-      const values = await servicesFor(workspaceId, secrets).credential(id, doc.app);
-      account = (await check(doc.app, values)) ?? account;
+      if (doc.app === "whatsappWeb") {
+        // Nothing to call: it works if the phone is linked and connected.
+        const s = await whatsappWebStatus(db, workspaceId, id);
+        if (s.status !== "open") throw new StepError(s.status === "logged_out" ? "Logged out on the phone. Link it again." : "The phone isn't linked or connected right now");
+        account = s.phone ? `+${s.phone}` : account;
+      } else {
+        const values = await servicesFor(workspaceId, secrets).credential(id, doc.app);
+        account = (await check(doc.app, values)) ?? account;
+      }
     } catch (err) {
       status = "error";
       lastError = redactText((err as Error).message, secrets);

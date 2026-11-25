@@ -17,6 +17,7 @@
     "@conduit/core": "0.1.0",
     "@conduit/engine": "0.1.0",
     "@conduit/nodes": "0.1.0",
+    "baileys": "^7.0.0-rc14",
     "isolated-vm": "^7.0.2",
     "mongodb": "^7.9.1",
     "nodemailer": "^10.6.1",

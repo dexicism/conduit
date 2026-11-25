@@ -66,7 +66,7 @@ export interface TriggerDoc {
   workflowId: ObjectId;
   versionId: ObjectId | null;
   nodeId: string;
-  kind: "webhook" | "webhook-test" | "schedule" | "telegram" | "whatsapp" | "form" | "chat";
+  kind: "webhook" | "webhook-test" | "schedule" | "telegram" | "whatsapp" | "whatsappWeb" | "form" | "chat";
   method?: string;
   path?: string;
   nextRunAt?: Date;

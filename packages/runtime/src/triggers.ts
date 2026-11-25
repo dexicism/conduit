@@ -42,8 +42,8 @@ export function publishIssues(graph: WorkflowGraph): Array<{ nodeId?: string; me
   return issues;
 }
 
-const LIVE_TYPES = ["trigger.webhook", "trigger.schedule", "trigger.telegram", "trigger.whatsapp", "trigger.form", "trigger.chat"];
-const LIVE_KINDS: TriggerDoc["kind"][] = ["webhook", "schedule", "telegram", "whatsapp", "form", "chat"];
+const LIVE_TYPES = ["trigger.webhook", "trigger.schedule", "trigger.telegram", "trigger.whatsapp", "trigger.whatsappWeb", "trigger.form", "trigger.chat"];
+const LIVE_KINDS: TriggerDoc["kind"][] = ["webhook", "schedule", "telegram", "whatsapp", "whatsappWeb", "form", "chat"];
 
 function liveTriggers(graph: WorkflowGraph) {
   return graph.nodes.filter((n) => !n.disabled && LIVE_TYPES.includes(n.type));
@@ -113,6 +113,7 @@ export function createTriggerService(db: Db, client: MongoClient, hooks: Trigger
         };
       }
       if (n.type === "trigger.whatsapp") return { ...base, kind: "whatsapp", credentialId: String(n.parameters.credential ?? "") };
+      if (n.type === "trigger.whatsappWeb") return { ...base, kind: "whatsappWeb", credentialId: String(n.parameters.credential ?? "") };
       return { ...base, kind: "schedule", nextRunAt: nextScheduleRun(n.parameters, now) };
     });
 
@@ -154,6 +155,17 @@ export function createTriggerService(db: Db, client: MongoClient, hooks: Trigger
           const message = (err as Error).message;
           throw new PublishError(message, [{ nodeId: b.nodeId, message }]);
         }
+      }
+    }
+    // A linked phone also starts one live workflow; that workflow decides what to do with each message.
+    const phones = docs.filter((d) => d.kind === "whatsappWeb");
+    if (phones.length) {
+      const ids = phones.map((b) => b.credentialId!);
+      if (new Set(ids).size !== ids.length) throw new PublishError("Two WhatsApp triggers use the same linked number", [], true);
+      const taken = await c.triggers.findOne({ kind: "whatsappWeb", credentialId: { $in: ids }, workflowId: { $ne: workflowId } });
+      if (taken) {
+        const other = await c.workflows.findOne({ _id: taken.workflowId }, { projection: { name: 1 } });
+        throw new PublishError(`This linked number already starts the live workflow "${String(other?.name ?? "another workflow")}". Unpublish it first.`, [], true);
       }
     }
     const previous = await c.triggers.find({ workflowId, kind: "telegram" }).toArray();

@@ -60,6 +60,7 @@ export function triggerItemsFor(type: string, now: Date, extra?: Record<string, 
     case "trigger.error":
     case "trigger.telegram":
     case "trigger.whatsapp":
+    case "trigger.whatsappWeb":
     case "trigger.form":
     case "trigger.chat":
       return [{ json: getDefinition(type)!.outputSample }];

@@ -5,7 +5,8 @@
  *
  *   MONGODB_URI=... MONGODB_DB=conduit npm start -w worker
  */
-import { createRuntime, integrationsFromEnv, llmFromEnv, startTelegramPoller, telegramModeFromEnv } from "@conduit/runtime";
+import { createRuntime, integrationsFromEnv, llmFromEnv, startTelegramPoller, startWhatsappWeb, telegramModeFromEnv } from "@conduit/runtime";
+import { resolve } from "node:path";
 import { MongoClient } from "mongodb";
 
 const uri = process.env.MONGODB_URI;
@@ -35,12 +36,16 @@ const worker = runtime.startWorker();
 // Polling mode: Telegram rejects overlapping polls, so with several workers set TELEGRAM_POLL=0 on all but one.
 const poller = telegramModeFromEnv() === "polling" && process.env.TELEGRAM_POLL !== "0" ? startTelegramPoller(db, integrations, runtime) : null;
 if (poller) console.info("[worker] Telegram: polling for messages");
+// Linked WhatsApp numbers: each one is owned by one worker at a time (a lease), so this is safe with several workers.
+// Keep WHATSAPP_WEB_DIR on a disk that survives restarts, or the phone has to be linked again.
+const whatsappWeb = process.env.WHATSAPP_WEB !== "0" ? startWhatsappWeb(db, runtime, { authRoot: process.env.WHATSAPP_WEB_DIR ?? resolve(".data", "whatsapp-web") }) : null;
 console.info(`[worker] AI provider: ${ai.provider}`);
 console.info("[worker] running");
 
 const shutdown = async () => {
   console.info("[worker] draining…");
   await poller?.stop();
+  await whatsappWeb?.stop();
   await worker.stop();
   await client.close();
   process.exit(0);

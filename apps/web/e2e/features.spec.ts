@@ -213,3 +213,35 @@ test("WhatsApp: add the receive keys, verify the callback, and a signed message 
     .toBe("Got: hello there");
   await page.request.delete(`/api/workflows/${id}/publish`);
 });
+
+test("WhatsApp (linked phone): add a number, see the link screen, and one live workflow per number", async ({ page }) => {
+  const label = `Shop phone ${Date.now()}`;
+  await page.goto("/app/connections");
+  await page.getByRole("list", { name: "Apps" }).getByRole("button", { name: /WhatsApp \(linked phone\)/ }).click();
+  const form = page.getByRole("form", { name: "Connect WhatsApp (linked phone)" });
+  await form.getByLabel("Account name").fill(label);
+  await form.getByRole("button", { name: "Connect" }).click();
+  // Straight into linking. The test server runs without the WhatsApp worker, so it waits.
+  const dialog = page.getByRole("dialog", { name: label });
+  await expect(dialog).toContainText("Waiting for Conduit's worker");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  const row = page.getByRole("list", { name: "Accounts" }).getByRole("listitem").filter({ hasText: label });
+  await expect(row.getByRole("button", { name: "Link phone" })).toBeVisible();
+  await expect(row.getByRole("button", { name: `Update keys for ${label}` })).toHaveCount(0);
+
+  const creds = (await (await page.request.get("/api/credentials?app=whatsappWeb")).json()).credentials as Array<{ id: string; label: string }>;
+  const cred = creds.find((c) => c.label === label)!.id;
+  const flow = (name: string) =>
+    workflowWith(page.request, name, [
+      { id: "wa", type: "trigger.whatsappWeb", parameters: { credential: cred, chats: "all", groupMode: "all" }, to: { main: ["reply"] } },
+      { id: "reply", type: "app.whatsappWeb.send", parameters: { credential: cred, to: "${['wa']['chatId']}", text: "hi", fileSource: "none" } },
+    ]);
+  const a = await flow("Phone bot A");
+  const b = await flow("Phone bot B");
+  expect((await page.request.post(`/api/workflows/${a}/publish`)).status()).toBe(200);
+  const clash = await page.request.post(`/api/workflows/${b}/publish`);
+  expect(clash.status()).toBe(409);
+  expect((await clash.json()).message).toMatch(/already starts the live workflow "Phone bot A/);
+  await page.request.delete(`/api/workflows/${a}/publish`);
+});

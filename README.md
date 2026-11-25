@@ -27,14 +27,14 @@ The AI runs locally through [Ollama](https://ollama.com), so there's no API bill
 ## What's in it
 
 - **Home page:** how your live workflows did this week: runs per day, success rate, the busiest workflows and the latest failures, with a link straight to each failed run.
-- **Templates:** ten ready-made workflows to start from (AI bots for Telegram and WhatsApp, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
+- **Templates:** eleven ready-made workflows to start from (AI bots for Telegram and WhatsApp, an AI assistant on your own WhatsApp number, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
 - **Editor:** 50-odd kinds of steps, a settings panel for each one, a picker for pulling data from earlier steps, undo/redo, copy/paste, sticky notes, auto-layout. It auto-saves and won't let two tabs overwrite each other.
 - **Version history:** every publish is saved. Open one, restore it into the editor, publish again. There's also **Download as file** and **Import** for sharing a workflow. Accounts, secret fields and auth headers are left out of the file; everything else you typed into steps goes with it, so give it a look before you post it somewhere.
 - **Variables:** put things like a phone number or a sheet link in Team & settings once, then use `${['$vars']['NAME']}` in any step. Secret ones are encrypted and show up as `[hidden]` in run logs.
-- **Triggers:** manual, webhook, schedule, form, chat page, Telegram, WhatsApp, "called by another workflow", and "on error".
+- **Triggers:** manual, webhook, schedule, form, chat page, Telegram, WhatsApp (official API or a linked phone), "called by another workflow", and "on error".
 - **Logic:** if/switch, loops, filter, merge, "only new items" (remembers what it's already seen, so a feed check every hour doesn't repeat itself), set fields, text/math/date/JSON helpers, HTTP requests, and a JavaScript step that runs in a sandbox.
 - **AI:** an agent that can use tools and remember a conversation, plus classify, sentiment, moderation and "pull data out of this text" steps. There's also a chat builder: describe a workflow and it drafts it on the canvas.
-- **Apps:** Telegram, Gmail, Google Sheets, Calendar and Drive, Notion, Airtable, Slack, Discord, WhatsApp Business, GitHub, Trello, Todoist, Mailchimp, ntfy (push notifications to your phone), RSS feeds, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
+- **Apps:** Telegram, Gmail, Google Sheets, Calendar and Drive, Notion, Airtable, Slack, Discord, WhatsApp (Business API, or a normal number linked like WhatsApp Web, groups included), GitHub, Trello, Todoist, Mailchimp, ntfy (push notifications to your phone), RSS feeds, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
 - **The rest:** run history with every step's input and output, teams with roles, API keys and a REST API, outgoing webhooks, an MCP server so AI assistants can read and edit workflows, and two-step sign-in.
 
 ## Running it (Windows, the easy way)
@@ -85,7 +85,11 @@ Saved accounts are encrypted. In dev the key is created for you in `.data/encryp
 
 Google logs test apps out every 7 days. When that happens, hit **Reconnect** under Connections. Drive can only see files Conduit made itself, which is on purpose. The `scripts/try-google-*.mts` scripts check each Google service against your real account.
 
-**WhatsApp:** uses Meta's official Cloud API, so it stays within WhatsApp's rules (unofficial WhatsApp Web bots can get a number banned). Meta's test number is free and can message up to 5 numbers you verify.
+**WhatsApp on your own number (linked phone):** works like WhatsApp Web. Add **WhatsApp (linked phone)** under Connected apps, scan the QR code with WhatsApp on that phone (Settings, Linked devices), done. No Meta account, no templates, no 24-hour rule, no public address, and it works in groups (reply to everything, or only when someone @mentions it). Photos and files people send are kept for 30 days and can be passed to other steps or sent back.
+
+The catch: it isn't Meta's official API, so WhatsApp can ban a number it decides is a bot, and WhatsApp updates sometimes break the link for a few days until the library catches up. Use a number you can afford to lose, warm it up by using it normally for a week or two, keep the volume human, and don't message lots of strangers first. If the number is ever banned or logged out, nothing in Conduit is lost; link a new number. It needs the phone to come online every couple of weeks, and the login lives in `apps/web/.data/whatsapp-web` (keep that folder). Set `WHATSAPP_WEB=0` to switch it off.
+
+**WhatsApp Business (official API):** uses Meta's official Cloud API, so it stays within WhatsApp's rules (unofficial WhatsApp Web bots can get a number banned). Meta's test number is free and can message up to 5 numbers you verify.
 
 1. Make an app at developers.facebook.com, add WhatsApp, and copy the Phone number ID and an access token from API Setup. Connect it under Connections.
 2. Sending works right away. For receiving, Meta needs a public address, so start a Cloudflare tunnel (below) and set `PUBLIC_URL`.
@@ -124,7 +128,7 @@ npm run typecheck
 npm run e2e         # Playwright; needs `npm run db` running, starts its own app on :3100
 ```
 
-The tests use fake versions of every app (`packages/runtime/src/testing/fake-apis.ts`), so they run offline and never touch real accounts. Telegram, the Google apps and ntfy have also been checked for real (`scripts/try-*.mts`); WhatsApp, Notion, Airtable, Discord, GitHub, Trello, Todoist and Mailchimp so far only against the fakes.
+The tests use fake versions of every app (`packages/runtime/src/testing/fake-apis.ts`), so they run offline and never touch real accounts. Telegram, the Google apps and ntfy have also been checked for real (`scripts/try-*.mts`); the WhatsApp Business API, Notion, Airtable, Discord, GitHub, Trello, Todoist and Mailchimp so far only against the fakes. WhatsApp (linked phone) is tested against a fake socket; the real library is checked up to getting a QR code from WhatsApp, but not yet with a linked phone.
 
 ## Where things live
 

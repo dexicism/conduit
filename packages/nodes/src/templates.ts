@@ -55,6 +55,32 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
     ],
   },
   {
+    id: "whatsapp-phone-assistant",
+    name: "AI assistant on your WhatsApp number",
+    description: "Links a normal WhatsApp number (like WhatsApp Web). Answers private chats, and in groups replies when someone @mentions it. Remembers each chat.",
+    apps: ["whatsappWeb"],
+    needsAi: true,
+    setup: "Add WhatsApp (linked phone) under Connected apps and scan the QR code, then pick it in the first and last steps and publish.",
+    steps: [
+      { id: "wa", type: "trigger.whatsappWeb", label: "WhatsApp message", parameters: { groupMode: "mentioned" }, to: ["ai"] },
+      {
+        id: "ai",
+        type: "ai.agent",
+        label: "Write a reply",
+        parameters: {
+          instructions: `${SUPPORT_PROMPT} In group chats, keep it short and only answer what was asked.`,
+          prompt: "${['$input']['fromName']} wrote: ${['$input']['text']}",
+          effort: "low",
+          memory: "window",
+          sessionKey: "${['$input']['chatId']}",
+          memoryTurns: 10,
+        },
+        to: ["reply"],
+      },
+      { id: "reply", type: "app.whatsappWeb.send", label: "Send the reply", parameters: { to: "${['wa']['chatId']}", text: "${['$input']['output']}" } },
+    ],
+  },
+  {
     id: "whatsapp-ai-bot",
     name: "AI WhatsApp assistant",
     description: "Replies to WhatsApp messages on your business number with AI and remembers each customer's conversation.",

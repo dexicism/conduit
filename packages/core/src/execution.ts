@@ -76,7 +76,7 @@ export type WorkflowSettings = z.infer<typeof workflowSettingsSchema>;
 export interface ActiveTrigger {
   nodeId: string;
   label: string;
-  kind: "webhook" | "schedule" | "telegram" | "whatsapp" | "form" | "chat";
+  kind: "webhook" | "schedule" | "telegram" | "whatsapp" | "whatsappWeb" | "form" | "chat";
   method?: string;
   path?: string;
   nextRunAt?: string;

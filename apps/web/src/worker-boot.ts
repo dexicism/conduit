@@ -1,4 +1,5 @@
-import { createRuntime, integrationsFromEnv, llmFromEnv, startTelegramPoller, telegramModeFromEnv } from "@conduit/runtime";
+import { createRuntime, integrationsFromEnv, llmFromEnv, startTelegramPoller, startWhatsappWeb, telegramModeFromEnv } from "@conduit/runtime";
+import { resolve } from "node:path";
 import { MongoClient } from "mongodb";
 import { runtimeOptionsFromEnv } from "./lib/runtime-options";
 
@@ -20,6 +21,10 @@ export function bootWorker(): Promise<void> {
     if (telegramModeFromEnv() === "polling") {
       startTelegramPoller(db, integrations, runtime);
       console.info("[worker] Telegram: polling for messages (no public address needed)");
+    }
+    if (process.env.WHATSAPP_WEB !== "0") {
+      startWhatsappWeb(db, runtime, { authRoot: resolve(process.cwd(), ".data", "whatsapp-web") });
+      console.info("[worker] WhatsApp (linked phone): ready");
     }
     console.info("[worker] started in-process");
   })().catch((err) => {

@@ -56,6 +56,14 @@ export const APP_DEFINITIONS: readonly AppDefinition[] = [
     },
   },
   {
+    id: "whatsappWeb",
+    name: "WhatsApp (linked phone)",
+    description: "Use a normal WhatsApp number, linked like WhatsApp Web. Works in groups, no templates needed.",
+    icon: "Smartphone",
+    help: "Give it a name, then press Link phone and scan the QR code with WhatsApp on that phone (Settings > Linked devices). This isn't Meta's official business API: WhatsApp can ban numbers it thinks are bots, so use a number you can afford to lose, keep the volume human, and don't message lots of strangers first.",
+    auth: { kind: "fields", fields: [] },
+  },
+  {
     id: "whatsapp",
     name: "WhatsApp Business",
     description: "Send WhatsApp messages from your business number (WhatsApp Cloud API).",
