@@ -244,6 +244,7 @@ describe("app actions", () => {
     expect(await integ.dynamicOptions(ws, "google.sheets", id, { spreadsheetId: sheetUrl })).toEqual([
       { value: "Sheet1", label: "Sheet1" },
       { value: "Archive", label: "Archive" },
+      { value: "Team", label: "Team" },
     ]);
 
     const mail = await run(ws, [
@@ -1188,5 +1189,66 @@ describe("Sheets find and update, and reading pictures", () => {
 
     const elsewhere = await extract(new ObjectId());
     expect(elsewhere.done.error?.message).toMatch(/isn't stored anymore|another workspace/);
+  });
+});
+
+describe("team access and owner email", () => {
+  it("matches senders to the Team tab by phone digits and routes them by role and access", async () => {
+    const ws = new ObjectId();
+    const id = await cred(ws, "google", await googleTokens(), { expiresAt: new Date(Date.now() + 3600_000) });
+    const check = (from: string, allow: string, roles = "") =>
+      run(ws, [
+        { id: "t", type: "trigger.manual", to: { main: ["set"] } },
+        { id: "set", type: "core.set", parameters: { assignments: [{ id: "a", name: "from", value: from, type: "string" }], keepOthers: false }, to: { main: ["who"] } },
+        { id: "who", type: "app.team.check", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Team", phone: "${['$input']['from']}", allow, roles } },
+      ]);
+    const route = async (from: string, allow: string, roles = "") => {
+      const r = await check(from, allow, roles);
+      expect(r.done.status).toBe("success");
+      const out = r.steps.find((s) => s.nodeId === "who")!.output;
+      const handle = out.allowed?.length ? "allowed" : "denied";
+      return { handle, person: (out[handle]![0]!.json as { person: Record<string, unknown> }).person };
+    };
+
+    // The owner: no Access value, but Owner can edit. Matched from WhatsApp's 91... form.
+    expect(await route("919900011122", "known")).toMatchObject({ handle: "allowed", person: { known: true, name: "Shadab", role: "Owner", canEdit: true, isOwner: true, row: 2 } });
+    // A leading 0 in the sheet doesn't matter.
+    expect(await route("919812345678", "edit")).toMatchObject({ handle: "allowed", person: { name: "Ravi", canEdit: true, isOwner: false, access: "edit" } });
+    expect(await route("+91 98111 12222", "edit")).toMatchObject({ handle: "denied", person: { name: "Asha", canEdit: false, access: "view" } });
+    expect(await route("9811112222", "known")).toMatchObject({ handle: "allowed" });
+    expect(await route("919812345678", "owner")).toMatchObject({ handle: "denied" });
+    expect(await route("919812345678", "roles", "Owner, sales")).toMatchObject({ handle: "allowed" });
+    // Blocked people and strangers never get through.
+    expect(await route("919800000000", "known")).toMatchObject({ handle: "denied", person: { known: true, access: "blocked" } });
+    expect(await route("917777777777", "known")).toMatchObject({ handle: "denied", person: { known: false, name: null } });
+    expect(await route("", "known")).toMatchObject({ handle: "denied", person: { known: false } });
+  });
+
+  it("searches Gmail and reads the text, and says how to fix a missing permission", async () => {
+    const ws = new ObjectId();
+    const id = await cred(ws, "google", await googleTokens(), { expiresAt: new Date(Date.now() + 3600_000) });
+    const search = (query: string) =>
+      run(ws, [
+        { id: "t", type: "trigger.manual", to: { main: ["mail"] } },
+        { id: "mail", type: "app.gmail.search", parameters: { credential: id, query, limit: 5 } },
+      ]);
+    const r = await search("from:mehta is:unread");
+    expect(r.output("mail")).toEqual([
+      {
+        id: "m1",
+        threadId: "t-m1",
+        from: "Mehta <mehta@example.com>",
+        to: FAKE.googleEmail,
+        subject: "Quote for 50 units",
+        date: new Date(1767258000000).toISOString(),
+        unread: true,
+        snippet: "Please send the quote by Friday.",
+        body: "Please send the quote by Friday.",
+      },
+    ]);
+    expect((await search("from:nobody")).output("mail")).toEqual([{ found: false }]);
+    expect((await search("")).output("mail")).toHaveLength(2);
+    fake.state.gmailCanRead = false;
+    expect((await search("x")).done.error?.message).toMatch(/press Reconnect on the Google account/);
   });
 });

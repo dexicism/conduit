@@ -14,7 +14,7 @@ function integrations(services: EngineServices): IntegrationServices {
   return services.integrations;
 }
 
-async function account(p: Json, app: string, services: EngineServices) {
+export async function account(p: Json, app: string, services: EngineServices) {
   const id = toText(p.credential);
   if (!id) throw new StepError("Choose an account to use");
   return integrations(services).credential(id, app);
@@ -148,6 +148,67 @@ const gmailSend: AppAction = async (p, services) => {
   return { id: b.id, threadId: b.threadId };
 };
 
+function header(h: Array<{ name?: string; value?: string }> | undefined, name: string): string {
+  return h?.find((x) => x.name?.toLowerCase() === name)?.value ?? "";
+}
+
+/** Plain text of a Gmail message: the text/plain part, or the HTML part without tags. */
+function gmailBody(part: { mimeType?: string; body?: { data?: string }; parts?: unknown[] } | undefined): string {
+  if (!part) return "";
+  const decode = (d?: string) => (d ? Buffer.from(d.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8") : "");
+  if (part.mimeType === "text/plain" && part.body?.data) return decode(part.body.data);
+  const kids = (part.parts ?? []) as Array<typeof part>;
+  const plain = kids.map(gmailBody).find((t) => t.trim());
+  if (plain) return plain;
+  if (part.mimeType === "text/html" && part.body?.data) {
+    return decode(part.body.data)
+      .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
+      .replace(/<br\s*\/?>|<\/p>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+  return decode(part.body?.data);
+}
+
+const gmailSearch: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const q = toText(p.query).trim();
+  const max = Math.min(25, Math.max(1, Math.floor(toNumber(p.limit ?? 5, "Max emails"))));
+  const auth = { authorization: `Bearer ${accessToken}` };
+  const list = await callJson(services, {
+    method: "GET",
+    url: `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${max}${q ? `&q=${encodeURIComponent(q)}` : ""}`,
+    headers: auth,
+  });
+  if (list.status === 403) throw new StepError("Gmail: Conduit isn't allowed to read mail yet. Open Connected apps and press Reconnect on the Google account.");
+  if (list.status >= 400) throw googleError(list, "Gmail");
+  const ids = ((list.body as { messages?: Array<{ id: string }> }).messages ?? []).map((m) => m.id);
+  const out: Json[] = [];
+  for (const id of ids) {
+    const res = await callJson(services, { method: "GET", url: `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`, headers: auth });
+    if (res.status >= 400) throw googleError(res, "Gmail");
+    const m = res.body as { id: string; threadId: string; snippet?: string; internalDate?: string; labelIds?: string[]; payload?: { headers?: Array<{ name?: string; value?: string }> } & Parameters<typeof gmailBody>[0] };
+    const body = gmailBody(m.payload).trim();
+    out.push({
+      id: m.id,
+      threadId: m.threadId,
+      from: header(m.payload?.headers, "from"),
+      to: header(m.payload?.headers, "to"),
+      subject: header(m.payload?.headers, "subject"),
+      date: m.internalDate ? new Date(Number(m.internalDate)).toISOString() : header(m.payload?.headers, "date"),
+      unread: (m.labelIds ?? []).includes("UNREAD"),
+      snippet: m.snippet ?? "",
+      body: body.length > 8000 ? `${body.slice(0, 8000)}\n…(cut)` : body,
+    });
+  }
+  return out.length ? out : { found: false };
+};
+
 /** Accepts a spreadsheet URL or a bare ID. */
 export function spreadsheetIdOf(v: unknown): string {
   const s = toText(v).trim();
@@ -224,7 +285,7 @@ const sheetsRead: AppAction = async (p, services) => {
 };
 
 /** All rows as {row, header->value}, read once per step. */
-async function readTable(services: EngineServices, token: string | undefined, id: string, sheet: unknown, limit = 5000) {
+export async function readTable(services: EngineServices, token: string | undefined, id: string, sheet: unknown, limit = 5000) {
   const res = await callJson(services, { method: "GET", url: sheetsUrl(id, sheetRange(sheet, `A1:ZZ${limit + 1}`)), headers: { authorization: `Bearer ${token}` } });
   if (res.status >= 400) throw googleError(res, "Google Sheets");
   const [head = [], ...rows] = (res.body as { values?: unknown[][] }).values ?? [];
@@ -574,6 +635,7 @@ export const APP_ACTIONS: Record<string, AppAction> = {
   "app.sheets.append": sheetsAppend,
   "app.sheets.read": sheetsRead,
   "app.sheets.find": sheetsFind,
+  "app.gmail.search": gmailSearch,
   "app.sheets.update": sheetsUpdate,
   "app.postgres.query": postgresQuery,
   "app.smtp.send": smtpSend,

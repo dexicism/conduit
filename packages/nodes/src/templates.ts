@@ -1,4 +1,5 @@
 import { defaultParameters, getDefinition } from "./registry";
+import { AGENT_HANDLE, TOOL_HANDLE } from "./types";
 
 /**
  * Ready-made workflows you can start from. Account fields are left empty on
@@ -12,6 +13,10 @@ interface TemplateStep {
   parameters?: Record<string, unknown>;
   /** Targets of the main output. */
   to?: string[];
+  /** Targets of other outputs, by handle (e.g. an If's true/false). */
+  routes?: Record<string, string[]>;
+  /** Tool steps attached to this AI agent. */
+  tools?: string[];
 }
 
 export interface WorkflowTemplate {
@@ -24,6 +29,51 @@ export interface WorkflowTemplate {
   /** Something to do after creating it, shown on the card. */
   setup?: string;
   steps: TemplateStep[];
+}
+
+const TEAM_PROMPT =
+  "You're the team's assistant on WhatsApp. Customer records are in the Customers tab of the Google Sheet; use your tools to look them up or change them, and never make up data. Reply briefly in the language the person writes in.";
+
+/** A "find customers" tool for one of the team agents. */
+function FIND(id: string): TemplateStep {
+  return {
+    id,
+    type: "tool.app.sheets.find",
+    label: "Look up customers",
+    parameters: {
+      toolName: "find_customers",
+      toolDescription: "Find customers in the Customers tab. Search a column (e.g. Customer, Phone, Status) for a value.",
+      sheet: "Customers",
+      column: "={{AI('column', `Column to search: Customer, Phone, Status…`, 'string')}}",
+      value: "={{AI('value', `What to look for`, 'string')}}",
+      match: "contains",
+      limit: 20,
+    },
+  };
+}
+
+/** An "update a customer" tool for the agents allowed to change data. */
+function UPDATE(id: string): TemplateStep {
+  return {
+    id,
+    type: "tool.app.sheets.update",
+    label: "Update a customer",
+    parameters: {
+      toolName: "update_customer",
+      toolDescription: "Change one customer's row in the Customers tab: find it by the Customer column, then set the given columns. Only use when someone asks for a change.",
+      sheet: "Customers",
+      findBy: "value",
+      column: "Customer",
+      value: "={{AI('customer', `The customer name exactly as in the sheet`, 'string')}}",
+      match: "equals",
+      columns: [
+        { key: "Status", value: "={{AI('status', `New status, or the current one if unchanged`, 'string')}}" },
+        { key: "Notes", value: "={{AI('notes', `New notes, or the current ones if unchanged`, 'string')}}" },
+      ],
+      ifMissing: "fail",
+      ifMany: "fail",
+    },
+  };
 }
 
 const SUPPORT_PROMPT = "You are a friendly assistant. Reply briefly (1-3 sentences) in the language the person writes in.";
@@ -78,6 +128,99 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
         to: ["reply"],
       },
       { id: "reply", type: "app.whatsappWeb.send", label: "Send the reply", parameters: { to: "${['wa']['chatId']}", text: "${['$input']['output']}" } },
+    ],
+  },
+  {
+    id: "team-assistant",
+    name: "Team assistant with roles",
+    description:
+      "One WhatsApp number for your whole team. It checks who's writing against a Team tab in your Google Sheet: the owner can look things up, update customers, message anyone and search email; editors can look up and update; everyone else can only ask. Strangers are ignored.",
+    apps: ["whatsappWeb", "google"],
+    needsAi: true,
+    setup:
+      "In your Google Sheet, add a Team tab with the columns Name, Phone, Role and Access (edit, view or blocked; a role of Owner or Boss is the owner), and a Customers tab. Paste the sheet link into the access check and every sheet tool, and pick your linked number and Google account in each step.",
+    steps: [
+      { id: "wa", type: "trigger.whatsappWeb", label: "WhatsApp message", parameters: { chats: "all", groupMode: "mentioned" }, to: ["who"] },
+      { id: "who", type: "app.team.check", label: "Who is this?", parameters: { sheet: "Team", allow: "known" }, routes: { allowed: ["owner"] } },
+      {
+        id: "owner",
+        type: "flow.if",
+        label: "The owner?",
+        parameters: { conditions: { combinator: "and", rules: [{ id: "r1", left: "${['$input']['person']['isOwner']}", operator: "isTrue", right: "" }] } },
+        routes: { true: ["boss"], false: ["editor"] },
+      },
+      {
+        id: "editor",
+        type: "flow.if",
+        label: "Can edit?",
+        parameters: { conditions: { combinator: "and", rules: [{ id: "r1", left: "${['$input']['person']['canEdit']}", operator: "isTrue", right: "" }] } },
+        routes: { true: ["staff"], false: ["viewer"] },
+      },
+      {
+        id: "boss",
+        type: "ai.agent",
+        label: "Owner's assistant",
+        parameters: {
+          instructions: `${TEAM_PROMPT} You're talking to the owner. You can look up and update customers, send WhatsApp messages to anyone they ask you to, and search their email. Before sending a message to someone else, say exactly what you'll send.`,
+          prompt: "${['$input']['person']['name']} (owner) wrote: ${['wa']['text']}",
+          image: "${['wa']['media']['id']}",
+          effort: "medium",
+          memory: "window",
+          sessionKey: "${['wa']['chatId']}",
+          memoryTurns: 10,
+        },
+        tools: ["boss_find", "boss_update", "boss_send", "boss_mail"],
+        to: ["reply"],
+      },
+      {
+        id: "staff",
+        type: "ai.agent",
+        label: "Staff assistant",
+        parameters: {
+          instructions: `${TEAM_PROMPT} You're talking to a team member who may update customer records. Only change what they clearly asked for.`,
+          prompt: "${['$input']['person']['name']} (${['$input']['person']['role']}) wrote: ${['wa']['text']}",
+          image: "${['wa']['media']['id']}",
+          effort: "low",
+          memory: "window",
+          sessionKey: "${['wa']['chatId']}",
+          memoryTurns: 10,
+        },
+        tools: ["staff_find", "staff_update"],
+        to: ["reply"],
+      },
+      {
+        id: "viewer",
+        type: "ai.agent",
+        label: "Read-only assistant",
+        parameters: {
+          instructions: `${TEAM_PROMPT} This person can look things up but not change anything. If they ask for a change, tell them who on the team can do it.`,
+          prompt: "${['$input']['person']['name']} (${['$input']['person']['role']}) wrote: ${['wa']['text']}",
+          effort: "low",
+          memory: "window",
+          sessionKey: "${['wa']['chatId']}",
+          memoryTurns: 10,
+        },
+        tools: ["viewer_find"],
+        to: ["reply"],
+      },
+      { id: "reply", type: "app.whatsappWeb.send", label: "Reply", parameters: { to: "${['wa']['chatId']}", text: "${['$input']['output']}" } },
+      FIND("boss_find"),
+      UPDATE("boss_update"),
+      {
+        id: "boss_send",
+        type: "tool.app.whatsappWeb.send",
+        label: "Message someone",
+        parameters: { toolName: "send_whatsapp", toolDescription: "Send a WhatsApp message to a phone number, for the owner.", to: "={{AI('to', `Phone number in international format, e.g. +919876543210`, 'string')}}", text: "={{AI('text', `The message to send`, 'string')}}", fileSource: "none" },
+      },
+      {
+        id: "boss_mail",
+        type: "tool.app.gmail.search",
+        label: "Search email",
+        parameters: { toolName: "search_email", toolDescription: "Search the owner's Gmail, e.g. from:mehta newer_than:7d.", query: "={{AI('query', `Gmail search, e.g. from:mehta is:unread`, 'string')}}", limit: 5 },
+      },
+      FIND("staff_find"),
+      UPDATE("staff_update"),
+      FIND("viewer_find"),
     ],
   },
   {
@@ -353,17 +496,33 @@ export function getTemplate(id: string): WorkflowTemplate | undefined {
 
 /** Turns a template into a workflow graph, with each step's defaults filled in. */
 export function templateGraph(t: WorkflowTemplate) {
+  // Tools sit under their agent; everything else goes left to right.
+  const ownerOf = new Map<string, string>();
+  for (const s of t.steps) for (const tool of s.tools ?? []) ownerOf.set(tool, s.id);
+  const pos = new Map<string, { x: number; y: number }>();
+  let col = 0;
+  for (const s of t.steps) if (!ownerOf.has(s.id)) pos.set(s.id, { x: col++ * 280, y: 0 });
+  for (const s of t.steps) {
+    (s.tools ?? []).forEach((tool, k) => {
+      const at = pos.get(s.id)!;
+      pos.set(tool, { x: at.x - 140 + k * 200, y: 220 });
+    });
+  }
   return {
-    nodes: t.steps.map((s, i) => {
+    nodes: t.steps.map((s) => {
       const def = getDefinition(s.type);
       if (!def) throw new Error(`Template ${t.id} uses an unknown step type ${s.type}`);
+      const connections: Record<string, Array<{ targetId: string; targetHandle?: string }>> = {};
+      if (s.to) connections.main = s.to.map((targetId) => ({ targetId }));
+      for (const [handle, targets] of Object.entries(s.routes ?? {})) connections[handle] = targets.map((targetId) => ({ targetId }));
+      if (s.tools?.length) connections[TOOL_HANDLE] = s.tools.map((targetId) => ({ targetId, targetHandle: AGENT_HANDLE }));
       return {
         id: s.id,
         type: s.type,
         label: s.label,
-        position: { x: i * 280, y: 0 },
+        position: pos.get(s.id) ?? { x: 0, y: 0 },
         parameters: { ...defaultParameters(def), ...(s.parameters ?? {}) },
-        connections: s.to ? { main: s.to.map((targetId) => ({ targetId })) } : {},
+        connections,
       };
     }),
   };

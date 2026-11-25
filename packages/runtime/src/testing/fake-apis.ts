@@ -30,6 +30,10 @@ export interface FakeState {
   refreshCount: number;
   sheets: Record<string, Record<string, string[][]>>;
   sentMail: string[];
+  /** Mailbox for Gmail search: subject and from are matched by a simple `q`. */
+  inbox: Array<{ id: string; from: string; subject: string; text: string; unread: boolean; date: number }>;
+  /** Gmail answers 403 (scope missing) when false. */
+  gmailCanRead: boolean;
   telegramWebhooks: Record<string, { url: string; secretToken?: string }>;
   /** Updates waiting for getUpdates (polling mode). Push to simulate someone messaging the bot. */
   telegramUpdates: Array<Record<string, unknown>>;
@@ -80,9 +84,21 @@ function freshState(): FakeState {
           ["Ben", "ben@example.com", "free"],
         ],
         Archive: [["Name"]],
+        Team: [
+          ["Name", "Phone", "Role", "Access"],
+          ["Shadab", "+91 99000 11122", "Owner", ""],
+          ["Ravi", "098123 45678", "Sales", "edit"],
+          ["Asha", "9811112222", "Intern", "view"],
+          ["Old hand", "9800000000", "Sales", "blocked"],
+        ],
       },
     },
     sentMail: [],
+    inbox: [
+      { id: "m1", from: "Mehta <mehta@example.com>", subject: "Quote for 50 units", text: "Please send the quote by Friday.", unread: true, date: 1767258000000 },
+      { id: "m2", from: "Bank <alerts@bank.example>", subject: "Statement", text: "Your statement is ready.", unread: false, date: 1767171600000 },
+    ],
+    gmailCanRead: true,
     telegramWebhooks: {},
     telegramUpdates: [],
     driveFiles: [],
@@ -456,6 +472,40 @@ export function startFakeApis(port = 0): Promise<FakeApis> {
         if (path === "/gmail/v1/users/me/messages/send" && typeof b.raw === "string") {
           state.sentMail.push(Buffer.from(b.raw, "base64url").toString("utf8"));
           return send(res, 200, { id: `msg${state.sentMail.length}`, threadId: `thr${state.sentMail.length}` });
+        }
+        if (path.startsWith("/gmail/v1/users/me/messages")) {
+          if (!state.gmailCanRead) return send(res, 403, { error: { code: 403, message: "Request had insufficient authentication scopes." } });
+          const one = /^\/gmail\/v1\/users\/me\/messages\/([^/?]+)$/.exec(path.split("?")[0]!);
+          if (one) {
+            const m = state.inbox.find((x) => x.id === one[1]);
+            if (!m) return send(res, 404, { error: { message: "Not found" } });
+            return send(res, 200, {
+              id: m.id,
+              threadId: `t-${m.id}`,
+              snippet: m.text.slice(0, 40),
+              internalDate: String(m.date),
+              labelIds: m.unread ? ["INBOX", "UNREAD"] : ["INBOX"],
+              payload: {
+                mimeType: "multipart/alternative",
+                headers: [
+                  { name: "From", value: m.from },
+                  { name: "To", value: FAKE.googleEmail },
+                  { name: "Subject", value: m.subject },
+                ],
+                parts: [
+                  { mimeType: "text/plain", body: { data: Buffer.from(m.text).toString("base64url") } },
+                  { mimeType: "text/html", body: { data: Buffer.from(`<p>${m.text}</p>`).toString("base64url") } },
+                ],
+              },
+            });
+          }
+          const q = (url.searchParams.get("q") ?? "").toLowerCase();
+          const max = Number(url.searchParams.get("maxResults") ?? 100);
+          const words = q.split(/\s+/).filter(Boolean);
+          const hits = state.inbox.filter((m) =>
+            words.every((w) => (w === "is:unread" ? m.unread : w.startsWith("from:") ? m.from.toLowerCase().includes(w.slice(5)) : `${m.subject} ${m.text}`.toLowerCase().includes(w))),
+          );
+          return send(res, 200, hits.length ? { messages: hits.slice(0, max).map((m) => ({ id: m.id, threadId: `t-${m.id}` })) } : { resultSizeEstimate: 0 });
         }
         return send(res, 404, { error: { message: "Not found" } });
       }

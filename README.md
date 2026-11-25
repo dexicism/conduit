@@ -27,14 +27,14 @@ The AI runs locally through [Ollama](https://ollama.com), so there's no API bill
 ## What's in it
 
 - **Home page:** how your live workflows did this week: runs per day, success rate, the busiest workflows and the latest failures, with a link straight to each failed run.
-- **Templates:** twelve ready-made workflows to start from (AI bots for Telegram and WhatsApp, an AI assistant on your own WhatsApp number, WhatsApp messages and photos that update your Google Sheet, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
+- **Templates:** thirteen ready-made workflows to start from (a team assistant on WhatsApp that knows who's boss, AI bots for Telegram and WhatsApp, an AI assistant on your own WhatsApp number, WhatsApp messages and photos that update your Google Sheet, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
 - **Editor:** 50-odd kinds of steps, a settings panel for each one, a picker for pulling data from earlier steps, undo/redo, copy/paste, sticky notes, auto-layout. It auto-saves and won't let two tabs overwrite each other.
 - **Version history:** every publish is saved. Open one, restore it into the editor, publish again. There's also **Download as file** and **Import** for sharing a workflow. Accounts, secret fields and auth headers are left out of the file; everything else you typed into steps goes with it, so give it a look before you post it somewhere.
 - **Variables:** put things like a phone number or a sheet link in Team & settings once, then use `${['$vars']['NAME']}` in any step. Secret ones are encrypted and show up as `[hidden]` in run logs.
 - **Triggers:** manual, webhook, schedule, form, chat page, Telegram, WhatsApp (official API or a linked phone), "called by another workflow", and "on error".
 - **Logic:** if/switch, loops, filter, merge, "only new items" (remembers what it's already seen, so a feed check every hour doesn't repeat itself), set fields, text/math/date/JSON helpers, HTTP requests, and a JavaScript step that runs in a sandbox.
 - **AI:** an agent that can use tools and remember a conversation, plus classify, sentiment, moderation and "pull data out of this text" steps. There's also a chat builder: describe a workflow and it drafts it on the canvas.
-- **Apps:** Telegram, Gmail, Google Sheets (add, read, find and update rows), Calendar and Drive, Notion, Airtable, Slack, Discord, WhatsApp (Business API, or a normal number linked like WhatsApp Web, groups included), GitHub, Trello, Todoist, Mailchimp, ntfy (push notifications to your phone), RSS feeds, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
+- **Apps:** Telegram, Gmail (send and search), Google Sheets (add, read, find and update rows), Calendar and Drive, Notion, Airtable, Slack, Discord, WhatsApp (Business API, or a normal number linked like WhatsApp Web, groups included), GitHub, Trello, Todoist, Mailchimp, ntfy (push notifications to your phone), RSS feeds, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
 - **The rest:** run history with every step's input and output, teams with roles, API keys and a REST API, outgoing webhooks, an MCP server so AI assistants can read and edit workflows, and two-step sign-in.
 
 ## Running it (Windows, the easy way)
@@ -103,6 +103,10 @@ The catch: it isn't Meta's official API, so WhatsApp can ban a number it decides
 4. Use the "AI WhatsApp assistant" template, or any workflow that starts with "WhatsApp message".
 
 Replies within 24 hours of a customer's message are free-form. After that WhatsApp only allows approved templates, which the send step supports.
+
+**Team roles and permissions:** add a **Team** tab to your Google Sheet with the columns Name, Phone, Role and Access (`edit`, `view` or `blocked`; a role like Owner or Boss is the owner). The **Team access check** step looks up whoever's writing (phone numbers match on their digits, so +91 and leading zeros don't matter) and sends them down *allowed* or *denied*, with their name, role and rights attached. The "Team assistant with roles" template uses it so the owner can do everything (including searching email), editors can update customers, everyone else can only ask, and strangers get nothing. Change who's allowed by editing the sheet.
+
+**Gmail search** needs permission to read mail, which older connections don't have: press **Reconnect** on the Google account once.
 
 **Everything else** just needs a key pasted under Connections. The connect dialog says where to find it for each app, but roughly:
 

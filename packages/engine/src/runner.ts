@@ -17,6 +17,7 @@ import {
   type StepRecord,
   type Task,
 } from "./types";
+import { teamCheckExecutor } from "./executors/team";
 import { toNumber } from "./values";
 
 export const MAX_STEPS = 10_000;
@@ -25,6 +26,7 @@ const EXECUTORS: Record<string, Executor> = {
   "flow.if": ifExecutor,
   "flow.filter": filterExecutor,
   "flow.onlyNew": onlyNewExecutor,
+  "app.team.check": teamCheckExecutor,
   "flow.switch": switchExecutor,
   "flow.wait": waitExecutor,
   "core.http": httpExecutor,

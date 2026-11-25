@@ -249,6 +249,63 @@ export const sheetsRead: NodeDefinition = {
   outputSample: { row: 2, Name: "Ana", Email: "ana@example.com" },
 };
 
+export const gmailSearch: NodeDefinition = {
+  ...action,
+  type: "app.gmail.search",
+  name: "Gmail: find emails",
+  description: "Search your mailbox with Gmail's own search (from:, subject:, is:unread, newer_than:2d…). One item per email, with the text. Needs the Google account reconnected once to allow reading.",
+  icon: "Mail",
+  app: "google",
+  keywords: ["gmail", "email", "mail", "inbox", "search", "read", "unread"],
+  asTool: { name: "search_email", description: "Search the owner's Gmail. Use Gmail search syntax, e.g. from:mehta newer_than:7d." },
+  fields: [
+    credential("google"),
+    { kind: "string", name: "query", label: "Search", aiFill: true, placeholder: "is:unread newer_than:1d", description: "Gmail search, exactly like the search box in Gmail. Empty = latest emails." },
+    { kind: "number", name: "limit", label: "Max emails", default: 5, min: 1, max: 25 },
+  ],
+  outputSample: { id: "18c2f…", threadId: "18c2f…", from: "Mehta <mehta@example.com>", to: "you@gmail.com", subject: "Order 42", date: "2026-01-01T09:00:00.000Z", unread: true, snippet: "Please send the quote…", body: "Please send the quote for 50 units." },
+};
+
+export const teamCheck: NodeDefinition = {
+  version: 1,
+  category: "app",
+  color: "sky",
+  inputs: [{ id: "main" }],
+  outputs: [
+    { id: "allowed", label: "allowed" },
+    { id: "denied", label: "denied" },
+  ],
+  type: "app.team.check",
+  name: "Team access check",
+  description:
+    "Looks up who's writing in a Team tab of your Google Sheet (columns Name, Phone, Role, Access) and sends them down allowed or denied. Adds a person object: name, role, canEdit, isOwner. Access: edit, view or blocked; a role with owner or boss is the owner.",
+  icon: "ShieldCheck",
+  app: "google",
+  keywords: ["team", "access", "permission", "role", "owner", "employee", "allowed", "whitelist", "who"],
+  fields: [
+    ...sheetFields().map((f): ParamField => (f.name === "sheet" && f.kind === "string" ? { ...f, default: "Team" } : f)),
+    { kind: "string", name: "phone", label: "Phone number to check", required: true, default: "${['$input']['from']}", description: "Usually the WhatsApp sender. Matched on digits, so +91 and leading zeros don't matter." },
+    {
+      kind: "select",
+      name: "allow",
+      label: "Allow",
+      default: "known",
+      options: [
+        { value: "known", label: "Anyone on the team sheet (not blocked)" },
+        { value: "edit", label: "Only people who can edit" },
+        { value: "owner", label: "Only the owner" },
+        { value: "roles", label: "Only these roles" },
+      ],
+    },
+    { kind: "string", name: "roles", label: "Roles", required: true, expression: false, placeholder: "Owner, Manager", showIf: { field: "allow", equals: ["roles"] } },
+  ],
+  outputSample: {
+    from: "919812345678",
+    text: "Mehta paid 4500",
+    person: { known: true, name: "Ravi", role: "Sales", access: "edit", canEdit: true, isOwner: false, phone: "+91 98123 45678", row: 3, details: { Name: "Ravi", Phone: "+91 98123 45678", Role: "Sales", Access: "edit" } },
+  },
+};
+
 const matchField: ParamField = {
   kind: "select",
   name: "match",
@@ -498,6 +555,7 @@ export const APP_ACTION_DEFINITIONS: readonly NodeDefinition[] = [
   sheetsRead,
   sheetsFind,
   sheetsUpdate,
+  gmailSearch,
   driveSave,
   driveFind,
   driveRead,
