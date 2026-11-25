@@ -137,7 +137,20 @@ Replies within 24 hours of a customer's message are free-form. After that WhatsA
 
 In dev, workflows run inside `npm run dev`. On a server you'd run the worker on its own (`npm start -w worker`, as many copies as you want) and set `CONDUIT_WORKER=off` on the web side. Jobs are claimed with a lease, so two workers never run the same thing.
 
-By default each workspace runs up to 4 workflows at once (`WORKSPACE_CONCURRENCY`) and keeps run logs for 7 days (`EXECUTION_RETENTION_DAYS`). HTTP steps can't hit private network addresses unless you set `HTTP_ALLOW_PRIVATE_NETWORK=1`. If it sits behind a reverse proxy, set `TRUST_PROXY=1` so the chat page can rate-limit by IP.
+By default each workspace runs up to 4 workflows at once (`WORKSPACE_CONCURRENCY`) and keeps run logs for 30 days (`EXECUTION_RETENTION_DAYS`). HTTP steps can't hit private network addresses unless you set `HTTP_ALLOW_PRIVATE_NETWORK=1`. If it sits behind a reverse proxy, set `TRUST_PROXY=1` so the chat page can rate-limit by IP.
+
+## Backups
+
+While Conduit runs, it saves a copy of the whole database once a day to `apps/web/.data/backups` (a laptop that was off overnight makes its backup about 30 seconds after starting). The last 14 are kept. Each backup is a folder of gzipped files, one per collection.
+
+To restore: stop Conduit, keep the database running (`npm run db`), then
+
+```bash
+npx tsx scripts/restore-backup.mts                 # lists the backups
+npx tsx scripts/restore-backup.mts <backup folder> # puts that one back
+```
+
+Saved accounts stay encrypted inside backups, so they only work again with the same key: keep a copy of `apps/web/.data/encryption.key` somewhere safe (not next to the backups). For real safety, copy the backups folder to another disk or a cloud drive now and then; a backup on the same laptop doesn't help if the laptop dies. `BACKUP_DIR`, `BACKUP_KEEP`, `BACKUP_EVERY_HOURS` and `BACKUP=0` change or switch this off.
 
 ## Tests
 

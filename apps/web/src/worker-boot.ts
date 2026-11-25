@@ -1,4 +1,4 @@
-import { createRuntime, integrationsFromEnv, llmFromEnv, startTelegramPoller, startWhatsappWeb, telegramModeFromEnv } from "@conduit/runtime";
+import { createRuntime, integrationsFromEnv, llmFromEnv, startBackups, startTelegramPoller, startWhatsappWeb, telegramModeFromEnv } from "@conduit/runtime";
 import { resolve } from "node:path";
 import { MongoClient } from "mongodb";
 import { runtimeOptionsFromEnv } from "./lib/runtime-options";
@@ -25,6 +25,12 @@ export function bootWorker(): Promise<void> {
     if (process.env.WHATSAPP_WEB !== "0") {
       startWhatsappWeb(db, runtime, { authRoot: resolve(process.cwd(), ".data", "whatsapp-web") });
       console.info("[worker] WhatsApp (linked phone): ready");
+    }
+    if (process.env.BACKUP !== "0") {
+      // A daily copy of the database in .data/backups (the last 14 are kept).
+      const dir = process.env.BACKUP_DIR || resolve(process.cwd(), ".data", "backups");
+      startBackups(db, { dir, everyHours: Number(process.env.BACKUP_EVERY_HOURS) || 24, keep: Number(process.env.BACKUP_KEEP) || 14 });
+      console.info(`[worker] daily backups to ${dir}`);
     }
     console.info("[worker] started in-process");
   })().catch((err) => {

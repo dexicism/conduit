@@ -137,7 +137,7 @@ describe("network guard", () => {
 describe("options", () => {
   it("keeps defaults for options passed as undefined (unset env vars)", () => {
     const o = resolveRuntimeOptions({ retentionDays: undefined, workerConcurrency: undefined, allowPrivateNetwork: true });
-    expect(o.retentionDays).toBe(7);
+    expect(o.retentionDays).toBe(30);
     expect(o.workerConcurrency).toBe(8);
     expect(o.allowPrivateNetwork).toBe(true);
   });

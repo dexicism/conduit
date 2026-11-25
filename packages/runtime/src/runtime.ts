@@ -26,7 +26,7 @@ export interface RuntimeOptions {
 
 export const DEFAULT_RUNTIME_OPTIONS: RuntimeOptions = {
   allowPrivateNetwork: false,
-  retentionDays: 7,
+  retentionDays: 30,
   workspaceConcurrency: 4,
   workerConcurrency: 8,
   maxSubworkflowDepth: 5,

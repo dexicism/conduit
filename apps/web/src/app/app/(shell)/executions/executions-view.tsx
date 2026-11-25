@@ -45,7 +45,7 @@ export function ExecutionsView({ initialWorkflowId }: { initialWorkflowId?: stri
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Runs</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Test and live runs of your workflows. Logs are kept for 7 days.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Test and live runs of your workflows. Logs are kept for 30 days.</p>
         </div>
         <Button variant="outline" onClick={() => list.refetch()} disabled={list.isFetching}>
           <RefreshCwIcon data-icon="inline-start" className={list.isFetching ? "animate-spin" : undefined} /> Refresh

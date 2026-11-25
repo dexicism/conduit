@@ -5,7 +5,7 @@
  *
  *   MONGODB_URI=... MONGODB_DB=conduit npm start -w worker
  */
-import { createRuntime, integrationsFromEnv, llmFromEnv, startTelegramPoller, startWhatsappWeb, telegramModeFromEnv } from "@conduit/runtime";
+import { createRuntime, integrationsFromEnv, llmFromEnv, startBackups, startTelegramPoller, startWhatsappWeb, telegramModeFromEnv } from "@conduit/runtime";
 import { resolve } from "node:path";
 import { MongoClient } from "mongodb";
 
@@ -39,6 +39,8 @@ if (poller) console.info("[worker] Telegram: polling for messages");
 // Linked WhatsApp numbers: each one is owned by one worker at a time (a lease), so this is safe with several workers.
 // Keep WHATSAPP_WEB_DIR on a disk that survives restarts, or the phone has to be linked again.
 const whatsappWeb = process.env.WHATSAPP_WEB !== "0" ? startWhatsappWeb(db, runtime, { authRoot: process.env.WHATSAPP_WEB_DIR ?? resolve(".data", "whatsapp-web") }) : null;
+// Backups: turn on in exactly one worker (BACKUP=1), pointing BACKUP_DIR at a disk that's backed up itself.
+const backups = process.env.BACKUP === "1" ? startBackups(db, { dir: process.env.BACKUP_DIR ?? resolve(".data", "backups"), everyHours: Number(process.env.BACKUP_EVERY_HOURS) || 24, keep: Number(process.env.BACKUP_KEEP) || 14 }) : null;
 console.info(`[worker] AI provider: ${ai.provider}`);
 console.info("[worker] running");
 
@@ -46,6 +48,7 @@ const shutdown = async () => {
   console.info("[worker] draining…");
   await poller?.stop();
   await whatsappWeb?.stop();
+  backups?.stop();
   await worker.stop();
   await client.close();
   process.exit(0);

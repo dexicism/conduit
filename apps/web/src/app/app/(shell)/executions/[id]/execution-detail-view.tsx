@@ -96,7 +96,7 @@ export function ExecutionDetailView({ id }: { id: string }) {
     return (
       <div className="mx-auto w-full max-w-5xl px-4 py-16 text-center sm:px-6">
         <p className="font-medium">{notFound ? "Run not found" : "Couldn't load this run"}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{notFound ? "It may have expired; logs are kept for 7 days." : errorMessage(q.error)}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{notFound ? "It may have expired; logs are kept for 30 days." : errorMessage(q.error)}</p>
         <Button className="mt-4" variant="outline" nativeButton={false} render={<Link href="/app/executions" />}>
           Back to runs
         </Button>
