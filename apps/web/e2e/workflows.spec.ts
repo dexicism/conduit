@@ -201,7 +201,7 @@ test.describe("Templates", () => {
     await page.goto("/app/workflows");
     await page.getByRole("button", { name: "Templates" }).click();
     const list = page.getByRole("list", { name: "Templates" });
-    await expect(list.getByRole("listitem")).toHaveCount(11);
+    await expect(list.getByRole("listitem")).toHaveCount(12);
     const card = list.getByRole("listitem").filter({ hasText: "New blog posts to your phone" });
     await expect(card).toContainText("ntfy");
     await expect(card).toContainText("After creating: Put the feed URL");

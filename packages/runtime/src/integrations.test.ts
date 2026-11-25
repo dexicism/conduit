@@ -1113,3 +1113,80 @@ describe("WhatsApp retries", () => {
     expect(await receiver.receive(id, body, sig)).toEqual({ status: 200, started: 0 });
   });
 });
+
+describe("Sheets find and update, and reading pictures", () => {
+  it("finds rows, updates only the given cells, adds or refuses when nothing matches, and refuses ambiguous updates", async () => {
+    const ws = new ObjectId();
+    const id = await cred(ws, "google", await googleTokens(), { expiresAt: new Date(Date.now() + 3600_000) });
+    const sheet = { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Sheet1" };
+    const rows = () => fake.state.sheets[FAKE.spreadsheetId]!.Sheet1!;
+    const one = async (type: string, parameters: Record<string, unknown>) =>
+      run(ws, [
+        { id: "t", type: "trigger.manual", to: { main: ["s"] } },
+        { id: "s", type, parameters: { ...sheet, ...parameters } },
+      ]);
+
+    const found = await one("app.sheets.find", { column: "email", value: "EXAMPLE.com", match: "contains" });
+    expect(found.output("s")).toEqual([
+      { found: true, row: 2, Name: "Ana", Email: "ana@example.com", Plan: "pro" },
+      { found: true, row: 3, Name: "Ben", Email: "ben@example.com", Plan: "free" },
+    ]);
+    expect((await one("app.sheets.find", { column: "Name", value: "  ben " })).output("s")).toEqual([{ found: true, row: 3, Name: "Ben", Email: "ben@example.com", Plan: "free" }]);
+    expect((await one("app.sheets.find", { column: "Name", value: "Zed" })).output("s")).toEqual([{ found: false, row: null }]);
+    const badCol = await one("app.sheets.find", { column: "Phone", value: "1" });
+    expect(badCol.done.error?.message).toMatch(/No column named "Phone". The sheet has: Name, Email, Plan/);
+
+    const upd = await one("app.sheets.update", { findBy: "value", column: "Name", value: "ben", match: "equals", columns: [{ key: "plan", value: "pro" }] });
+    expect(upd.output("s")?.[0]).toEqual({ action: "updated", changed: { Plan: { from: "free", to: "pro" } }, row: 3, Name: "Ben", Email: "ben@example.com", Plan: "pro" });
+    expect(rows()[2]).toEqual(["Ben", "ben@example.com", "pro"]);
+    expect(rows()[1]).toEqual(["Ana", "ana@example.com", "pro"]);
+
+    const byRow = await one("app.sheets.update", { findBy: "row", rowNumber: "2", columns: [{ key: "Email", value: "ana@new.example" }] });
+    expect(byRow.output("s")?.[0]).toMatchObject({ action: "updated", row: 2, Email: "ana@new.example" });
+    expect(rows()[1]).toEqual(["Ana", "ana@new.example", "pro"]);
+
+    const missing = await one("app.sheets.update", { findBy: "value", column: "Name", value: "Dee", columns: [{ key: "Plan", value: "free" }], ifMissing: "fail" });
+    expect(missing.done.error?.message).toMatch(/No row where Name is "Dee"/);
+    expect((await one("app.sheets.update", { findBy: "value", column: "Name", value: "Dee", columns: [{ key: "Plan", value: "free" }], ifMissing: "skip" })).output("s")).toEqual([{ action: "not_found", row: null }]);
+    const added = await one("app.sheets.update", { findBy: "value", column: "Name", value: "Dee", columns: [{ key: "Plan", value: "free" }], ifMissing: "add" });
+    expect(added.output("s")?.[0]).toMatchObject({ action: "added", Name: "Dee", Plan: "free", row: 4 });
+    expect(rows()[3]).toEqual(["Dee", "", "free"]);
+
+    rows().push(["Ana", "ana2@example.com", "free"]);
+    const many = await one("app.sheets.update", { findBy: "value", column: "Name", value: "Ana", columns: [{ key: "Plan", value: "x" }], ifMany: "fail" });
+    expect(many.done.error?.message).toMatch(/2 rows match "Ana" \(rows 2, 5\)/);
+    expect(rows()[1]![2]).toBe("pro");
+  });
+
+  it("hands a stored WhatsApp photo to the model, and only from this workspace", async () => {
+    const ws = new ObjectId();
+    const { insertedId } = await db.collection("media_files").insertOne({ workspaceId: ws, mimetype: "image/jpeg", fileName: null, size: 4, data: Buffer.from("JPEG"), createdAt: new Date() });
+    llmRequests.length = 0;
+    llmScript = [{ content: [{ type: "text", text: '{"customer":"Mehta","amount":"4500"}' }], stopReason: "end_turn", model: "m", usage: { inputTokens: 1, outputTokens: 1 } }];
+    const extract = (workspaceId: ObjectId) =>
+      run(workspaceId, [
+        { id: "t", type: "trigger.manual", to: { main: ["x"] } },
+        {
+          id: "x",
+          type: "ai.extract",
+          parameters: {
+            text: "",
+            image: insertedId.toHexString(),
+            fields: [
+              { id: "a", name: "customer", value: "Customer name", type: "string" },
+              { id: "b", name: "amount", value: "Amount", type: "string" },
+            ],
+          },
+        },
+      ]);
+    const r = await extract(ws);
+    expect(r.done.status).toBe("success");
+    expect(r.output("x")?.[0]).toMatchObject({ ai: { customer: "Mehta", amount: "4500" } });
+    const sent = llmRequests.at(-1)!.messages[0]!.content;
+    expect(sent[0]).toEqual({ type: "image", mimetype: "image/jpeg", base64: Buffer.from("JPEG").toString("base64") });
+    expect(sent[1]).toMatchObject({ type: "text", text: expect.stringContaining("Read the attached image") });
+
+    const elsewhere = await extract(new ObjectId());
+    expect(elsewhere.done.error?.message).toMatch(/isn't stored anymore|another workspace/);
+  });
+});

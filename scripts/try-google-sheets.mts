@@ -1,6 +1,6 @@
 /**
  * Checks the real Google connection: creates a "Conduit test" spreadsheet in
- * your Drive, then runs the app's own Sheets steps to add a row and read it back.
+ * your Drive, then runs the app's own Sheets steps: add a row, find it, update it, read it back.
  * Uses the Google account saved in Connections. Run with the database running:
  *
  *   npx tsx scripts/try-google-sheets.mts
@@ -19,7 +19,7 @@ try {
   const credential = String(cred._id);
   const { integrations } = integrationsFromEnv(db, { allowPrivateNetwork: false });
 
-  // 1. A new spreadsheet with a header row (the app's steps only read and add rows).
+  // 1. A new spreadsheet with a header row.
   const { values } = await integrations.resolve(workspaceId, credential, "google");
   const res = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
     method: "POST",
@@ -33,7 +33,7 @@ try {
   if (!res.ok || !sheet.spreadsheetId) throw new Error(`Creating the spreadsheet failed: ${sheet.error?.message ?? res.status}`);
   console.log(`Created: ${sheet.spreadsheetUrl}`);
 
-  // 2. The app's own steps: add a row, then read the rows.
+  // 2. The app's own steps: add a row, find it by name, change one cell, read the rows.
   const node = (id: string, type: string, x: number, parameters: Record<string, unknown>, next?: string) => ({
     id, type, label: id, position: { x, y: 0 },
     parameters: { ...defaultParameters(getDefinition(type)!), ...parameters },
@@ -45,8 +45,13 @@ try {
       node("add", "app.sheets.append", 250, {
         credential, spreadsheetId: sheet.spreadsheetUrl, sheet: "Leads",
         columns: [{ key: "name", value: "Ana" }, { key: "Email", value: "ana@example.com" }, { key: "Note", value: "added by Conduit" }],
+      }, "find"),
+      node("find", "app.sheets.find", 500, { credential, spreadsheetId: sheet.spreadsheetId, sheet: "Leads", column: "Name", value: "ana", match: "equals" }, "update"),
+      node("update", "app.sheets.update", 750, {
+        credential, spreadsheetId: sheet.spreadsheetId, sheet: "Leads", findBy: "value", column: "Email", value: "ANA@example.com",
+        columns: [{ key: "Note", value: "updated by Conduit" }], ifMissing: "fail", ifMany: "fail",
       }, "read"),
-      node("read", "app.sheets.read", 500, { credential, spreadsheetId: sheet.spreadsheetId, sheet: "Leads", limit: 10 }),
+      node("read", "app.sheets.read", 1000, { credential, spreadsheetId: sheet.spreadsheetId, sheet: "Leads", limit: 10 }),
     ],
   });
   const runtime = createRuntime(db, {}, {}, { integrations });

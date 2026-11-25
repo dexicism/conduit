@@ -160,7 +160,7 @@ export function ConfigPanel() {
                       // The model picker lists Claude models; a local model ignores it, so say what's used instead.
                       f.name === "model" && def.requiresAi && aiProvider !== "anthropic" ? (
                         <p key={f.name} className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
-                          {aiProvider === "ollama" ? "Uses your local AI model (set with OLLAMA_MODEL on the server)." : "Uses the AI model set up on this server."}
+                          {aiProvider === "ollama" ? "Uses your local AI model (set with OLLAMA_MODEL on the server)." : aiProvider === "gemini" ? "Uses Google Gemini (set with GEMINI_MODEL on the server)." : "Uses the AI model set up on this server."}
                         </p>
                       ) : (
                       <ParamFieldView

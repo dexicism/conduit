@@ -2,14 +2,16 @@ import type { LlmService, MemoryService, MemoryTurn } from "@conduit/engine";
 import type { Db, ObjectId } from "mongodb";
 import { createAnthropicLlm } from "./llm-anthropic";
 import { createFakeLlm } from "./llm-fake";
+import { createGeminiLlm } from "./llm-gemini";
 import { createOllamaLlm } from "./llm-ollama";
 
-export type LlmProviderName = "anthropic" | "ollama" | "fake" | "none";
+export type LlmProviderName = "anthropic" | "gemini" | "ollama" | "fake" | "none";
 
 /**
  * Picks the model provider from the environment:
  * - AI_PROVIDER=fake          deterministic test model (refused in production)
  * - AI_PROVIDER=ollama       a free local model through Ollama (OLLAMA_URL, OLLAMA_MODEL)
+ * - AI_PROVIDER=gemini       Google Gemini, free tier available (GEMINI_API_KEY, GEMINI_MODEL)
  * - AI_PROVIDER=anthropic, or ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN set   Claude
  * - otherwise none: AI steps and the builder are hidden.
  */
@@ -29,6 +31,12 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): { provider: Ll
       provider: "ollama",
       llm: createOllamaLlm({ baseUrl: env.OLLAMA_URL, model: env.OLLAMA_MODEL, ...(timeout > 0 ? { timeoutMs: timeout } : {}), ...(ctx > 0 ? { contextTokens: ctx } : {}) }),
     };
+  }
+  if (choice === "gemini") {
+    const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
+    if (!apiKey) throw new Error("AI_PROVIDER=gemini needs GEMINI_API_KEY (get one free at aistudio.google.com)");
+    const timeout = Number(env.GEMINI_TIMEOUT_MS);
+    return { provider: "gemini", llm: createGeminiLlm({ apiKey, model: env.GEMINI_MODEL, ...(timeout > 0 ? { timeoutMs: timeout } : {}) }) };
   }
   if (choice === "anthropic" || env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN) {
     return { provider: "anthropic", llm: createAnthropicLlm() };

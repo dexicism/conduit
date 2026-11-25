@@ -10,6 +10,13 @@ const text = (label = "Text"): ParamField => ({
   multiline: true,
   placeholder: "${['$input']['message']}",
 });
+const image: ParamField = {
+  kind: "string",
+  name: "image",
+  label: "Image",
+  placeholder: "${['$input']['media']['id']}",
+  description: "Optional. A photo or screenshot for the model to read: a WhatsApp media ID, or base64 / a data: URL. Needs a model that can see images (Gemini and Claude can).",
+};
 const outputField: ParamField = { kind: "string", name: "outputField", label: "Save result as", default: "ai", required: true, expression: false };
 
 export const agentNode: NodeDefinition = {
@@ -44,6 +51,7 @@ export const agentNode: NodeDefinition = {
       placeholder: "${['$input']['body']['message']}",
       description: "What to do for each item. Usually the incoming message.",
     },
+    image,
     {
       kind: "select",
       name: "effort",
@@ -158,7 +166,7 @@ export const extractNode: NodeDefinition = {
   type: "ai.extract",
   version: 1,
   name: "Extract data",
-  description: "Pull structured fields out of free text, like names, dates and amounts.",
+  description: "Pull structured fields out of free text or a picture (a bill, a screenshot, a business card), like names, dates and amounts.",
   category: "ai",
   icon: "ScanText",
   color: "violet",
@@ -168,7 +176,8 @@ export const extractNode: NodeDefinition = {
   requiresAi: true,
   fields: [
     model,
-    text(),
+    { ...text(), required: false, description: "The text to read. Can be empty when there's an image." },
+    image,
     {
       kind: "assignments",
       name: "fields",

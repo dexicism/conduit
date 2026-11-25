@@ -27,14 +27,14 @@ The AI runs locally through [Ollama](https://ollama.com), so there's no API bill
 ## What's in it
 
 - **Home page:** how your live workflows did this week: runs per day, success rate, the busiest workflows and the latest failures, with a link straight to each failed run.
-- **Templates:** eleven ready-made workflows to start from (AI bots for Telegram and WhatsApp, an AI assistant on your own WhatsApp number, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
+- **Templates:** twelve ready-made workflows to start from (AI bots for Telegram and WhatsApp, an AI assistant on your own WhatsApp number, WhatsApp messages and photos that update your Google Sheet, a chat assistant for your site, a contact form that fills a Google Sheet, new blog posts to your phone or Discord, Telegram to Todoist, bug reports to GitHub, a newsletter sign-up, and failure alerts). Hit **Templates** on the workflows page.
 - **Editor:** 50-odd kinds of steps, a settings panel for each one, a picker for pulling data from earlier steps, undo/redo, copy/paste, sticky notes, auto-layout. It auto-saves and won't let two tabs overwrite each other.
 - **Version history:** every publish is saved. Open one, restore it into the editor, publish again. There's also **Download as file** and **Import** for sharing a workflow. Accounts, secret fields and auth headers are left out of the file; everything else you typed into steps goes with it, so give it a look before you post it somewhere.
 - **Variables:** put things like a phone number or a sheet link in Team & settings once, then use `${['$vars']['NAME']}` in any step. Secret ones are encrypted and show up as `[hidden]` in run logs.
 - **Triggers:** manual, webhook, schedule, form, chat page, Telegram, WhatsApp (official API or a linked phone), "called by another workflow", and "on error".
 - **Logic:** if/switch, loops, filter, merge, "only new items" (remembers what it's already seen, so a feed check every hour doesn't repeat itself), set fields, text/math/date/JSON helpers, HTTP requests, and a JavaScript step that runs in a sandbox.
 - **AI:** an agent that can use tools and remember a conversation, plus classify, sentiment, moderation and "pull data out of this text" steps. There's also a chat builder: describe a workflow and it drafts it on the canvas.
-- **Apps:** Telegram, Gmail, Google Sheets, Calendar and Drive, Notion, Airtable, Slack, Discord, WhatsApp (Business API, or a normal number linked like WhatsApp Web, groups included), GitHub, Trello, Todoist, Mailchimp, ntfy (push notifications to your phone), RSS feeds, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
+- **Apps:** Telegram, Gmail, Google Sheets (add, read, find and update rows), Calendar and Drive, Notion, Airtable, Slack, Discord, WhatsApp (Business API, or a normal number linked like WhatsApp Web, groups included), GitHub, Trello, Todoist, Mailchimp, ntfy (push notifications to your phone), RSS feeds, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
 - **The rest:** run history with every step's input and output, teams with roles, API keys and a REST API, outgoing webhooks, an MCP server so AI assistants can read and edit workflows, and two-step sign-in.
 
 ## Running it (Windows, the easy way)
@@ -59,7 +59,11 @@ Sign-in is by email code. If you haven't set up email (`RESEND_API_KEY` or `SMTP
 
 ## AI
 
-Install Ollama, run `ollama pull qwen3:8b`, and put `AI_PROVIDER=ollama` in `.env.local`. Every AI step and the builder will use that model.
+Three ways to give it a brain. All AI steps and the builder use whichever one you set in `.env.local`.
+
+**Google Gemini (free tier, recommended to start):** get a key at [aistudio.google.com](https://aistudio.google.com), then set `AI_PROVIDER=gemini` and `GEMINI_API_KEY=...`. It's a lot smarter than a local model, it can read pictures (bills, screenshots, handwritten notes), and the free tier is plenty for a small team. On the free tier Google may use what you send to improve its products, so think about that before sending customer data; the paid tier doesn't. `GEMINI_MODEL` picks the model (default `gemini-2.5-flash`). If you hit "too many requests", that's the free-tier limit; wait a minute.
+
+**Ollama (free, offline):** install Ollama, run `ollama pull qwen3:8b`, and put `AI_PROVIDER=ollama` in `.env.local`. Every AI step and the builder will use that model.
 
 A few things I found:
 
@@ -68,7 +72,9 @@ A few things I found:
 - If Ollama crashes with a "CUDA error" on an NVIDIA laptop GPU, run `setx OLLAMA_LLM_LIBRARY cuda_v12` and restart Ollama. That one took me a while.
 - `npx tsx scripts/try-ollama.mts` checks that answers, tool calls and JSON output all work.
 
-If you have a Claude API key, set `ANTHROPIC_API_KEY` instead. It's a lot smarter, but you pay per use. `AI_PROVIDER=fake` gives you a dumb rule-based model for poking around without either.
+**Claude:** set `ANTHROPIC_API_KEY` (and `AI_PROVIDER=anthropic`). The smartest of the three and very good at following rules, but you pay per use (a few dollars a month for a small team on Haiku). A Claude Pro subscription doesn't work here; that's for chatting in the Claude apps.
+
+The AI Agent and Extract data steps have an **Image** field: give it a WhatsApp media ID (or base64) and the model reads the picture along with the text. Gemini and Claude can; most local models can't. `AI_PROVIDER=fake` gives you a dumb rule-based model for poking around without either.
 
 ## Connecting apps
 

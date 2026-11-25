@@ -463,6 +463,24 @@ export function startFakeApis(port = 0): Promise<FakeApis> {
       // --- Google Sheets --------------------------------------------------
       if (host === "sheets.googleapis.com") {
         if (!googleAuthed(req)) return send(res, 401, { error: { code: 401, message: "Request had invalid authentication credentials." } });
+        const batch = /^\/v4\/spreadsheets\/([^/]+)\/values:batchUpdate$/.exec(path);
+        if (batch) {
+          const book = state.sheets[batch[1]!];
+          if (!book) return send(res, 404, { error: { code: 404, message: "Requested entity was not found." } });
+          for (const d of (b.data ?? []) as Array<{ range: string; values: unknown[][] }>) {
+            const { sheet, cells } = parseRange(d.range);
+            const cm = /^([A-Z]+)(\d+)$/.exec(cells);
+            const rows = book[sheet];
+            if (!rows || !cm) return send(res, 400, { error: { code: 400, message: `Unable to parse range: ${d.range}` } });
+            const col = [...cm[1]!].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+            const r = Number(cm[2]) - 1;
+            while (rows.length <= r) rows.push([]);
+            const row = rows[r]!;
+            while (row.length <= col) row.push("");
+            row[col] = String(d.values?.[0]?.[0] ?? "");
+          }
+          return send(res, 200, { totalUpdatedCells: (b.data ?? []).length });
+        }
         const m = /^\/v4\/spreadsheets\/([^/]+)(?:\/values\/([^:]+)(:append)?)?$/.exec(path);
         const book = m ? state.sheets[m[1]!] : undefined;
         if (!m || !book) return send(res, 404, { error: { code: 404, message: "Requested entity was not found." } });

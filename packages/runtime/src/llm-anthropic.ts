@@ -14,6 +14,8 @@ function toParamBlocks(blocks: LlmBlock[]): Anthropic.Beta.BetaContentBlockParam
         return { type: "tool_use", id: b.id, name: b.name, input: b.input as Record<string, unknown> };
       case "tool_result":
         return { type: "tool_result", tool_use_id: b.toolUseId, content: b.content, is_error: b.isError ?? false };
+      case "image":
+        return { type: "image", source: { type: "base64", media_type: b.mimetype as "image/jpeg", data: b.base64 } };
       case "opaque":
         // Thinking / fallback blocks go back exactly as the API returned them.
         return b.raw as Anthropic.Beta.BetaContentBlockParam;

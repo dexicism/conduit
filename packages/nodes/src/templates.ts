@@ -81,6 +81,62 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
     ],
   },
   {
+    id: "whatsapp-photo-to-sheet",
+    name: "WhatsApp updates to your sheet",
+    description: "Someone sends a message or a photo (a bill, a screenshot, a note) to your linked WhatsApp number. AI reads it, the customer's row in your Google Sheet is updated (or added), and they get a short confirmation.",
+    apps: ["whatsappWeb", "google"],
+    needsAi: true,
+    setup:
+      "Your sheet needs the columns Customer, Status, Amount, Notes and Updated by. Paste its link into both sheet steps, pick your linked number in the first and last steps, and put the numbers allowed to make changes in the trigger's Only these numbers.",
+    steps: [
+      { id: "wa", type: "trigger.whatsappWeb", label: "Message or photo", parameters: { chats: "private" }, to: ["read"] },
+      {
+        id: "read",
+        type: "ai.extract",
+        label: "Read it",
+        parameters: {
+          text: "${['$input']['text']}",
+          image: "${['$input']['media']['id']}",
+          fields: [
+            { id: "f1", name: "customer", value: "The customer or company name this is about", type: "string" },
+            { id: "f2", name: "status", value: "New status, e.g. Called, Quoted, Paid, Delivered", type: "string" },
+            { id: "f3", name: "amount", value: "Amount of money mentioned, digits only", type: "string" },
+            { id: "f4", name: "notes", value: "Anything else worth keeping, in a short sentence", type: "string" },
+          ],
+          outputField: "update",
+        },
+        to: ["save"],
+      },
+      {
+        id: "save",
+        type: "app.sheets.update",
+        label: "Update the customer's row",
+        parameters: {
+          sheet: "Sheet1",
+          findBy: "value",
+          column: "Customer",
+          value: "${['read']['update']['customer']}",
+          match: "equals",
+          columns: [
+            { key: "Status", value: "${['read']['update']['status']}" },
+            { key: "Amount", value: "${['read']['update']['amount']}" },
+            { key: "Notes", value: "${['read']['update']['notes']}" },
+            { key: "Updated by", value: "${['wa']['fromName']}" },
+          ],
+          ifMissing: "add",
+          ifMany: "fail",
+        },
+        to: ["confirm"],
+      },
+      {
+        id: "confirm",
+        type: "app.whatsappWeb.send",
+        label: "Confirm",
+        parameters: { to: "${['wa']['chatId']}", text: "Done: ${['save']['action']} ${['save']['Customer']} (row ${['save']['row']})." },
+      },
+    ],
+  },
+  {
     id: "whatsapp-ai-bot",
     name: "AI WhatsApp assistant",
     description: "Replies to WhatsApp messages on your business number with AI and remembers each customer's conversation.",

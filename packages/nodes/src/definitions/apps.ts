@@ -249,6 +249,98 @@ export const sheetsRead: NodeDefinition = {
   outputSample: { row: 2, Name: "Ana", Email: "ana@example.com" },
 };
 
+const matchField: ParamField = {
+  kind: "select",
+  name: "match",
+  label: "Match",
+  default: "equals",
+  options: [
+    { value: "equals", label: "Is exactly (ignoring case and spaces)" },
+    { value: "contains", label: "Contains" },
+    { value: "phone", label: "Same phone number (compares digits only)" },
+  ],
+};
+
+export const sheetsFind: NodeDefinition = {
+  ...action,
+  type: "app.sheets.find",
+  name: "Google Sheets: find rows",
+  description: "Find the rows where a column matches a value, e.g. the customer with this phone number. Always outputs something: matching rows with found = true, or one item with found = false.",
+  icon: "Sheet",
+  app: "google",
+  keywords: ["google", "sheets", "spreadsheet", "find", "search", "lookup", "customer", "row"],
+  asTool: { name: "find_sheet_rows", description: "Find rows in the Google Sheet where a column matches a value." },
+  fields: [
+    ...sheetFields(),
+    { kind: "string", name: "column", label: "Search in column", required: true, aiFill: true, placeholder: "Phone" },
+    { kind: "string", name: "value", label: "Value", required: true, aiFill: true },
+    matchField,
+    { kind: "number", name: "limit", label: "Max rows", default: 50, min: 1, max: 500 },
+  ],
+  outputSample: { found: true, row: 7, Name: "Mehta Traders", Phone: "9812345678", Status: "Quoted" },
+};
+
+export const sheetsUpdate: NodeDefinition = {
+  ...action,
+  type: "app.sheets.update",
+  name: "Google Sheets: update row",
+  description: "Change some cells in one row, found by a column value (e.g. the phone number) or by row number. Other cells stay as they are.",
+  icon: "Sheet",
+  app: "google",
+  keywords: ["google", "sheets", "spreadsheet", "update", "edit", "change", "row", "upsert"],
+  asTool: { name: "update_sheet_row", description: "Update cells in one row of the Google Sheet, found by a column value." },
+  fields: [
+    ...sheetFields(),
+    {
+      kind: "select",
+      name: "findBy",
+      label: "Which row",
+      default: "value",
+      options: [
+        { value: "value", label: "The row where a column matches" },
+        { value: "row", label: "A row number" },
+      ],
+    },
+    { kind: "string", name: "column", label: "Find by column", required: true, aiFill: true, placeholder: "Phone", showIf: { field: "findBy", equals: ["value"] } },
+    { kind: "string", name: "value", label: "Value", required: true, aiFill: true, showIf: { field: "findBy", equals: ["value"] } },
+    { ...matchField, showIf: { field: "findBy", equals: ["value"] } },
+    { kind: "string", name: "rowNumber", label: "Row number", required: true, placeholder: "${['$input']['row']}", showIf: { field: "findBy", equals: ["row"] } },
+    {
+      kind: "keyValue",
+      name: "columns",
+      label: "Set",
+      required: true,
+      keyPlaceholder: "Column header",
+      valuePlaceholder: "New value",
+      description: "Only these columns change.",
+    },
+    {
+      kind: "select",
+      name: "ifMissing",
+      label: "If no row matches",
+      default: "fail",
+      showIf: { field: "findBy", equals: ["value"] },
+      options: [
+        { value: "fail", label: "Stop with an error" },
+        { value: "skip", label: "Do nothing (output action = not_found)" },
+        { value: "add", label: "Add a new row" },
+      ],
+    },
+    {
+      kind: "select",
+      name: "ifMany",
+      label: "If several rows match",
+      default: "first",
+      showIf: { field: "findBy", equals: ["value"] },
+      options: [
+        { value: "first", label: "Update the first one" },
+        { value: "fail", label: "Stop with an error (safer)" },
+      ],
+    },
+  ],
+  outputSample: { action: "updated", changed: { Status: { from: "Quoted", to: "Called" } }, row: 7, Name: "Mehta Traders", Phone: "9812345678", Status: "Called" },
+};
+
 // ---------------------------------------------------------------------------
 // Databases and email
 // ---------------------------------------------------------------------------
@@ -404,6 +496,8 @@ export const APP_ACTION_DEFINITIONS: readonly NodeDefinition[] = [
   gmailSend,
   sheetsAppend,
   sheetsRead,
+  sheetsFind,
+  sheetsUpdate,
   driveSave,
   driveFind,
   driveRead,

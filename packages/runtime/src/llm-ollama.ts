@@ -21,6 +21,8 @@ interface OllamaMessage {
   content: string;
   tool_calls?: OllamaToolCall[];
   tool_name?: string;
+  /** Base64 pictures, for vision models (e.g. qwen2.5vl, llama3.2-vision). */
+  images?: string[];
 }
 
 interface OllamaResponse {
@@ -69,7 +71,8 @@ export function toOllamaMessages(system: string | undefined, messages: LlmMessag
       if (b.type !== "tool_result") continue;
       out.push({ role: "tool", content: b.isError ? `Error: ${b.content}` : b.content, tool_name: toolNames.get(b.toolUseId) ?? "tool" });
     }
-    if (text) out.push({ role: "user", content: text });
+    const images = m.content.filter((b): b is Extract<LlmBlock, { type: "image" }> => b.type === "image").map((b) => b.base64);
+    if (text || images.length) out.push({ role: "user", content: text, ...(images.length ? { images } : {}) });
   }
   return out;
 }

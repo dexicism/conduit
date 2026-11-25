@@ -37,6 +37,8 @@ export type LlmBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "tool_result"; toolUseId: string; content: string; isError?: boolean }
+  /** A picture for the model to look at (photo, screenshot, scanned bill). */
+  | { type: "image"; mimetype: string; base64: string }
   /** Provider-specific block (e.g. thinking) that must be sent back unchanged. */
   | { type: "opaque"; raw: unknown };
 

@@ -223,6 +223,131 @@ const sheetsRead: AppAction = async (p, services) => {
   });
 };
 
+/** All rows as {row, header->value}, read once per step. */
+async function readTable(services: EngineServices, token: string | undefined, id: string, sheet: unknown, limit = 5000) {
+  const res = await callJson(services, { method: "GET", url: sheetsUrl(id, sheetRange(sheet, `A1:ZZ${limit + 1}`)), headers: { authorization: `Bearer ${token}` } });
+  if (res.status >= 400) throw googleError(res, "Google Sheets");
+  const [head = [], ...rows] = (res.body as { values?: unknown[][] }).values ?? [];
+  const header = head.map((h) => toText(h).trim());
+  if (!header.some(Boolean)) throw new StepError("The sheet's first row needs column names");
+  return { header, rows: rows.map((r) => header.map((_, c) => toText(r[c] ?? ""))) };
+}
+
+function columnIndex(header: string[], name: string): number {
+  const key = name.trim().toLowerCase();
+  const col = header.findIndex((h) => h.toLowerCase() === key);
+  if (col < 0) throw new StepError(`No column named "${name.trim()}". The sheet has: ${header.filter(Boolean).join(", ")}`);
+  return col;
+}
+
+/** Column letters for a 0-based index: 0 -> A, 26 -> AA. */
+function columnLetter(i: number): string {
+  let s = "";
+  for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+}
+
+const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, " ");
+const digits = (v: string) => v.replace(/\D/g, "");
+
+/** Compares one cell to what we're looking for. Phone numbers match on their digits, so "+91 98123-45678" finds "9812345678". */
+function cellMatches(cell: string, wanted: string, how: string): boolean {
+  if (how === "contains") return norm(cell).includes(norm(wanted));
+  if (how === "phone") {
+    const a = digits(cell);
+    const b = digits(wanted);
+    return a.length >= 7 && b.length >= 7 && (a.endsWith(b) || b.endsWith(a));
+  }
+  return norm(cell) === norm(wanted);
+}
+
+function rowObject(header: string[], cells: string[], rowNumber: number): Json {
+  const out: Json = { row: rowNumber };
+  header.forEach((h, c) => {
+    if (h) out[h] = cells[c] ?? "";
+  });
+  return out;
+}
+
+const sheetsFind: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const id = spreadsheetIdOf(p.spreadsheetId);
+  const { header, rows } = await readTable(services, accessToken, id, p.sheet);
+  const column = toText(p.column).trim();
+  if (!column) throw new StepError("Choose the column to search in");
+  const col = columnIndex(header, column);
+  const wanted = toText(p.value);
+  if (!wanted.trim()) throw new StepError("The value to find is empty");
+  const how = toText(p.match) || "equals";
+  const limit = Math.min(500, Math.max(1, Math.floor(toNumber(p.limit ?? 50, "Max rows"))));
+  const found = rows
+    .map((cells, i) => ({ cells, row: i + 2 }))
+    .filter((r) => cellMatches(r.cells[col] ?? "", wanted, how))
+    .slice(0, limit)
+    .map((r) => ({ found: true, ...rowObject(header, r.cells, r.row) }));
+  // Always one item at least, so the workflow can branch on "found".
+  return found.length ? found : { found: false, row: null };
+};
+
+const sheetsUpdate: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const id = spreadsheetIdOf(p.spreadsheetId);
+  const { header, rows } = await readTable(services, accessToken, id, p.sheet);
+  const pairs = (Array.isArray(p.columns) ? (p.columns as KeyValuePair[]) : []).filter((c) => toText(c.key).trim());
+  if (!pairs.length) throw new StepError("Add at least one column to change");
+  const changes = pairs.map((c) => ({ col: columnIndex(header, toText(c.key)), value: toText(c.value) }));
+
+  let rowNumber: number | null = null;
+  if (p.findBy === "row") {
+    rowNumber = Math.floor(toNumber(p.rowNumber, "Row number"));
+    if (rowNumber < 2) throw new StepError("Row 1 is the header row. Use 2 or higher.");
+  } else {
+    const col = columnIndex(header, toText(p.column));
+    const wanted = toText(p.value);
+    if (!wanted.trim()) throw new StepError("The value to find is empty");
+    const matches = rows.map((cells, i) => ({ cells, row: i + 2 })).filter((r) => cellMatches(r.cells[col] ?? "", wanted, toText(p.match) || "equals"));
+    if (matches.length > 1 && p.ifMany === "fail") {
+      throw new StepError(`${matches.length} rows match "${wanted}" (rows ${matches.slice(0, 5).map((m) => m.row).join(", ")}). Make the search more specific.`);
+    }
+    rowNumber = matches[0]?.row ?? null;
+    if (rowNumber === null) {
+      if (p.ifMissing === "add") {
+        const row: string[] = header.map(() => "");
+        row[col] = wanted;
+        for (const c of changes) row[c.col] = c.value;
+        const res = await callJson(services, {
+          method: "POST",
+          url: sheetsUrl(id, sheetRange(p.sheet, "A1"), ":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"),
+          headers: { authorization: `Bearer ${accessToken}` },
+          body: { values: [row] },
+        });
+        if (res.status >= 400) throw googleError(res, "Google Sheets");
+        const updatedRange = toText((res.body as { updates?: { updatedRange?: string } }).updates?.updatedRange);
+        const added = Number(/![A-Z]+(\d+)/.exec(updatedRange)?.[1] ?? NaN);
+        return { action: "added", ...rowObject(header, row, Number.isFinite(added) ? added : rows.length + 2) };
+      }
+      if (p.ifMissing === "skip") return { action: "not_found", row: null };
+      throw new StepError(`No row where ${header[col]} is "${wanted}"`);
+    }
+  }
+
+  const before = rows[rowNumber - 2] ?? header.map(() => "");
+  const res = await callJson(services, {
+    method: "POST",
+    url: `https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchUpdate`,
+    headers: { authorization: `Bearer ${accessToken}` },
+    body: {
+      valueInputOption: "USER_ENTERED",
+      data: changes.map((c) => ({ range: sheetRange(p.sheet, `${columnLetter(c.col)}${rowNumber}`), values: [[c.value]] })),
+    },
+  });
+  if (res.status >= 400) throw googleError(res, "Google Sheets");
+  const after = [...before];
+  for (const c of changes) after[c.col] = c.value;
+  const changed = Object.fromEntries(changes.filter((c) => (before[c.col] ?? "") !== c.value).map((c) => [header[c.col]!, { from: before[c.col] ?? "", to: c.value }]));
+  return { action: "updated", changed, ...rowObject(header, after, rowNumber) };
+};
+
 // ---------------------------------------------------------------------------
 // PostgreSQL and SMTP
 // ---------------------------------------------------------------------------
@@ -448,6 +573,8 @@ export const APP_ACTIONS: Record<string, AppAction> = {
   "app.gmail.send": gmailSend,
   "app.sheets.append": sheetsAppend,
   "app.sheets.read": sheetsRead,
+  "app.sheets.find": sheetsFind,
+  "app.sheets.update": sheetsUpdate,
   "app.postgres.query": postgresQuery,
   "app.smtp.send": smtpSend,
 };

@@ -31,6 +31,34 @@ function modelOf(p: Record<string, unknown>): string {
   return toText(p.model) || DEFAULT_MODEL;
 }
 
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+/** The step's Image field as a picture for the model: a stored media ID, a data: URL, or raw base64. */
+async function imageBlocks(ctx: ExecContext, p: Record<string, unknown>): Promise<LlmBlock[]> {
+  const v = toText(p.image).trim();
+  if (!v) return [];
+  let mimetype = "image/jpeg";
+  let base64 = v;
+  if (/^[a-f\d]{24}$/i.test(v)) {
+    const m = await ctx.services.integrations?.whatsappWeb?.readMedia(v);
+    if (!m) throw new StepError("That image isn't stored anymore (files are kept for 30 days) or belongs to another workspace");
+    mimetype = m.mimetype;
+    base64 = m.base64;
+  } else {
+    const d = /^data:([^;,]+);base64,([\s\S]*)$/.exec(v);
+    if (d) {
+      mimetype = d[1]!;
+      base64 = d[2]!;
+    } else if (v.startsWith("iVBOR")) mimetype = "image/png";
+    else if (v.startsWith("UklGR")) mimetype = "image/webp";
+    if (!/^[A-Za-z0-9+/=\s]+$/.test(base64)) throw new StepError("Image: use a media ID, a data: URL or base64");
+  }
+  if (!IMAGE_TYPES.includes(mimetype)) throw new StepError(`Image: ${mimetype} isn't a picture the model can read (use JPEG, PNG, WebP or GIF)`);
+  if (base64.length * 0.75 > MAX_IMAGE_BYTES) throw new StepError("Image: pictures can be at most 8 MB");
+  return [{ type: "image", mimetype, base64: base64.replace(/\s/g, "") }];
+}
+
 /** Single structured call: the reply is JSON matching `schema`. */
 async function structured(
   ctx: ExecContext,
@@ -38,11 +66,12 @@ async function structured(
   system: string,
   user: string,
   schema: Record<string, unknown>,
+  images: LlmBlock[] = [],
 ): Promise<Record<string, unknown>> {
   const res = await requireLlm(ctx).chat({
     model: modelOf(p),
     system,
-    messages: [{ role: "user", content: [{ type: "text", text: user }] }],
+    messages: [{ role: "user", content: [...images, { type: "text", text: user }] }],
     jsonSchema: schema,
     effort: "low",
     maxTokens: 8000,
@@ -176,12 +205,16 @@ export const extractExecutor: Executor = async (ctx) => {
         },
       ]),
     );
+    const images = await imageBlocks(ctx, p);
+    const text = toText(p.text).trim().slice(0, 100_000);
+    if (!text && !images.length) throw new StepError("Give it some text or an image to read");
     const out = await structured(
       ctx,
       p,
-      "You extract structured data from text. Use null for any field the text doesn't state. Don't guess or invent values.",
-      `Text:\n<text>\n${inputText(p)}\n</text>`,
+      "You extract structured data from text and pictures. Use null for any field that isn't clearly there. Don't guess or invent values.",
+      [images.length ? "Read the attached image." : "", text ? `Text:\n<text>\n${text}\n</text>` : ""].filter(Boolean).join("\n\n"),
       { type: "object", properties, required: Object.keys(properties), additionalProperties: false },
+      images,
     );
     for (const f of fields) {
       const k = toText(f.name).trim();
@@ -349,7 +382,7 @@ export const agentExecutor: Executor = async (ctx) => {
     if (useMemory) {
       for (const t of await ctx.services.memory!.load(ctx.node.id, sessionKey)) messages.push({ role: t.role, content: [{ type: "text", text: t.text }] });
     }
-    messages.push({ role: "user", content: [{ type: "text", text: prompt }] });
+    messages.push({ role: "user", content: [...(await imageBlocks(ctx, p)), { type: "text", text: prompt }] });
 
     const tools = bindTools(ctx, item, i, 0);
     const byName = new Map(tools.map((t) => [t.spec.name, t]));
