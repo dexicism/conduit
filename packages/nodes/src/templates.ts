@@ -201,7 +201,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
     apps: ["whatsappWeb", "google"],
     needsAi: true,
     setup:
-      "In your Google Sheet, add a Team tab with the columns Name, Phone, Role and Access (edit, view or blocked; a role of Owner or Boss is the owner), a Customers tab, and a Tasks tab with ID, Task, Customer, Assigned to, Phone, Status, Due, Created by, Created. Paste the sheet link into the access check and every sheet tool, and pick your linked number and Google account in each step.",
+      "In your Google Sheet, add a Team tab with the columns Name, Phone, Role and Access (edit, view or blocked; a role of Owner or Boss is the owner), a Customers tab, and a Tasks tab with ID, Task, Customer, Assigned to, Phone, Status, Due, Created by, Created. Paste the sheet link into the access check and every sheet tool, pick your linked number and Google account in each step, and add a variable COMPANY_DETAILS (your company name and address, used on PDFs).",
     steps: [
       { id: "wa", type: "trigger.whatsappWeb", label: "WhatsApp message", parameters: { chats: "all", groupMode: "mentioned" }, to: ["who"] },
       { id: "who", type: "app.team.check", label: "Who is this?", parameters: { sheet: "Team", allow: "known" }, routes: { allowed: ["owner"] } },
@@ -224,7 +224,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
         type: "ai.agent",
         label: "Owner's assistant",
         parameters: {
-          instructions: `${TEAM_PROMPT} You're talking to the owner. You can look up and update customers, add and assign tasks (the task log warns you if someone's already on it: then tell the owner who), set reminders, message one person or the whole team, and search their email. Before messaging anyone else, say exactly what you'll send.`,
+          instructions: `${TEAM_PROMPT} You're talking to the owner. You can look up and update customers, add and assign tasks (the task log warns you if someone's already on it: then tell the owner who), set reminders, message one person or the whole team, send quotations and other documents as PDFs, and search and send email (always say what you'll send first). Before messaging anyone else, say exactly what you'll send.`,
           prompt: "${['$input']['person']['name']} (owner) wrote: ${['wa']['text']}",
           image: "${['wa']['media']['id']}",
           effort: "medium",
@@ -232,7 +232,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
           sessionKey: "${['wa']['chatId']}",
           memoryTurns: 10,
         },
-        tools: ["boss_find", "boss_update", "boss_task", "boss_taskupdate", "boss_remind", "boss_send", "boss_everyone", "boss_reminders", "boss_cancel", "boss_team", "boss_mail"],
+        tools: ["boss_find", "boss_update", "boss_task", "boss_taskupdate", "boss_remind", "boss_send", "boss_everyone", "boss_reminders", "boss_cancel", "boss_team", "boss_mail", "boss_email", "boss_pdf"],
         to: ["reply"],
       },
       {
@@ -280,6 +280,32 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
         type: "tool.app.gmail.search",
         label: "Search email",
         parameters: { toolName: "search_email", toolDescription: "Search the owner's Gmail, e.g. from:mehta newer_than:7d.", query: "={{AI('query', `Gmail search, e.g. from:mehta is:unread`, 'string')}}", limit: 5 },
+      },
+      {
+        id: "boss_email",
+        type: "tool.app.gmail.send",
+        label: "Send an email",
+        parameters: { toolName: "send_email", toolDescription: "Send an email from the owner's Gmail. Only when the owner asks, and after telling them exactly what you'll send.", to: "={{AI('to', `Email address`, 'string')}}", subject: "={{AI('subject', `Subject`, 'string')}}", bodyType: "text", body: "={{AI('body', `The email text`, 'string')}}" },
+      },
+      {
+        id: "boss_pdf",
+        type: "tool.app.whatsappWeb.sendDocument",
+        label: "Send a quotation PDF",
+        parameters: {
+          toolName: "send_document",
+          toolDescription: "Make a PDF (quotation, invoice, price list) and send it on WhatsApp. Table: first line 'Item | Qty | Price', then one line per item.",
+          to: "={{AI('to', `Phone number to send it to`, 'string')}}",
+          caption: "={{AI('caption', `A short message with the PDF`, 'string')}}",
+          title: "={{AI('title', `Document title, e.g. Quotation`, 'string')}}",
+          reference: "={{AI('reference', `Reference and date line, or empty`, 'string')}}",
+          from: "${['$vars']['COMPANY_DETAILS']}",
+          to_name: "={{AI('customer', `Customer name`, 'string')}}",
+          intro: "={{AI('intro', `One or two lines of text, or empty`, 'string')}}",
+          rows: "={{AI('rows', `The table, one line per item: Item | Qty | Price`, 'string')}}",
+          currency: "Rs.",
+          notes: "={{AI('notes', `Terms like validity, GST, delivery, or empty`, 'string')}}",
+          fileName: "={{AI('fileName', `File name like quotation-mehta.pdf`, 'string')}}",
+        },
       },
       {
         id: "boss_everyone",

@@ -115,6 +115,8 @@ Replies within 24 hours of a customer's message are free-form. After that WhatsA
 - **Nudge people about due tasks** (template): every morning, everyone with something due or overdue gets a WhatsApp asking for an update. No AI, so it's free. Their replies reach the team assistant, which can mark the task done or move the date.
 - **Supervisor: daily report to the owner** (template): every evening an AI reads all open tasks, asks people whose tasks are more than 2 days late what's going on, and sends the owner a short report. Set the owner's number once as the variable `OWNER_PHONE`.
 
+**PDFs (quotations, invoices, price lists):** **Make PDF document** turns a title, a few lines of text and a table into a clean A4 PDF. Write the table as lines (`Item | Qty | Price`, then one line per item) or pass a list from another step; with quantity and price columns it adds the amounts and a total. **WhatsApp (linked phone): send a PDF** makes it and sends it in one go, which is what the team assistant uses when the owner says "send Mehta a quote for 50 pipes at 200". The built-in PDF fonts can't draw ₹ (it's written as Rs.) or non-Latin scripts (shown as ?).
+
 **Gmail search** needs permission to read mail, which older connections don't have: press **Reconnect** on the Google account once.
 
 **Everything else** just needs a key pasted under Connections. The connect dialog says where to find it for each app, but roughly:
