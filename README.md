@@ -33,7 +33,8 @@ The AI runs locally through [Ollama](https://ollama.com), so there's no API bill
 - **Variables:** put things like a phone number or a sheet link in Team & settings once, then use `${['$vars']['NAME']}` in any step. Secret ones are encrypted and show up as `[hidden]` in run logs.
 - **Triggers:** manual, webhook, schedule, form, chat page, Telegram, WhatsApp (official API or a linked phone), "called by another workflow", and "on error".
 - **Logic:** if/switch, loops, filter, merge, "only new items" (remembers what it's already seen, so a feed check every hour doesn't repeat itself), set fields, text/math/date/JSON helpers, HTTP requests, and a JavaScript step that runs in a sandbox.
-- **AI:** an agent that can use tools and remember a conversation, plus classify, sentiment, moderation and "pull data out of this text" steps. There's also a chat builder: describe a workflow and it drafts it on the canvas.
+- **AI:** an agent that can use tools and remember a conversation (per workflow, or shared by every workflow talking to the same person), plus classify, sentiment, moderation and "pull data out of this text" steps. It reads photos, PDFs and voice notes. There's also a chat builder: describe a workflow and it drafts it on the canvas.
+- **Files:** make Excel files, put photos into a PDF, merge PDFs, pick pages, stamp text like APPROVED on a PDF. All of them can send the result on WhatsApp, and the AI agent can use them as tools.
 - **Apps:** Telegram, Gmail (send and search), Google Sheets (add, read, find and update rows), Calendar and Drive, Notion, Airtable, Slack, Discord, WhatsApp (Business API, or a normal number linked like WhatsApp Web, groups included), GitHub, Trello, Todoist, Mailchimp, ntfy (push notifications to your phone), RSS feeds, PostgreSQL and SMTP. Any app step can also be handed to the AI agent as a tool.
 - **The rest:** run history with every step's input and output, teams with roles, API keys and a REST API, outgoing webhooks, an MCP server so AI assistants can read and edit workflows, and two-step sign-in.
 
@@ -42,6 +43,10 @@ The AI runs locally through [Ollama](https://ollama.com), so there's no API bill
 Double-click **Start Conduit** (`Start Conduit.cmd` in this folder). It starts Ollama, the database and the app, then opens http://localhost:3000. The first start takes about a minute. Two minimized "Conduit" windows stay open while it's running.
 
 **Stop Conduit** shuts it all down. Bots and schedules only run while it's up.
+
+**Keep Conduit running** (run it once) adds a small Windows task for your user, no admin needed: Conduit starts when you sign in, and every 5 minutes the database and the app are started again if they've stopped. What it did goes to `.data/watchdog.log`. **Stop Conduit** still means stopped: the watchdog leaves it off until you **Start Conduit** again. `Keep Conduit running.cmd -Remove` turns it off. For a bot that should answer all day, also set Windows to never sleep while plugged in (Settings, System, Power), since a sleeping laptop can't run anything.
+
+The local AI (Ollama) is only started when `AI_PROVIDER=ollama`.
 
 ## Running it by hand
 
@@ -72,7 +77,13 @@ A few things I found:
 - If Ollama crashes with a "CUDA error" on an NVIDIA laptop GPU, run `setx OLLAMA_LLM_LIBRARY cuda_v12` and restart Ollama. That one took me a while.
 - `npx tsx scripts/try-ollama.mts` checks that answers, tool calls and JSON output all work.
 
-**Claude:** set `ANTHROPIC_API_KEY` (and `AI_PROVIDER=anthropic`). The smartest of the three and very good at following rules, but you pay per use (a few dollars a month for a small team on Haiku). A Claude Pro subscription doesn't work here; that's for chatting in the Claude apps.
+**Claude:** set `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` (from platform.claude.com, where you buy API credits; a Claude Pro subscription doesn't work here, that's for chatting in the Claude apps). The smartest of the three and very good at following rules, but you pay per use. To keep that low:
+
+- `ANTHROPIC_MODEL=claude-haiku-5-5` runs every AI step on Haiku, whatever model a step asks for. Without it, steps use the model picked in the step (the default is Opus, which costs far more).
+- Prompt caching is on: the instructions and tool list are the same on every message, so after the first one they cost about a tenth. Only the date goes into the instructions (the time goes with each message), so the cache lasts all day.
+- Claude reads photos and PDFs. It can't listen to voice notes; if `GEMINI_API_KEY` is set too, Gemini writes each voice note out first and Claude gets the text.
+
+With Gemini, `GEMINI_FALLBACK_MODELS` (default `gemini-2.5-flash-lite`) is tried when the main model is busy or out of free requests; a model that said its quota is used up is skipped for as long as Google says.
 
 The AI Agent and Extract data steps have an **Image** field: give it a WhatsApp media ID (or base64) and the model reads the picture along with the text. Gemini and Claude can; most local models can't. `AI_PROVIDER=fake` gives you a dumb rule-based model for poking around without either.
 
@@ -116,6 +127,16 @@ Replies within 24 hours of a customer's message are free-form. After that WhatsA
 - **Supervisor: daily report to the owner** (template): every evening an AI reads all open tasks, asks people whose tasks are more than 2 days late what's going on, and sends the owner a short report. Set the owner's number once as the variable `OWNER_PHONE`.
 
 **PDFs (quotations, invoices, price lists):** **Make PDF document** turns a title, a few lines of text and a table into a clean A4 PDF. Write the table as lines (`Item | Qty | Price`, then one line per item) or pass a list from another step; with quantity and price columns it adds the amounts and a total. **WhatsApp (linked phone): send a PDF** makes it and sends it in one go, which is what the team assistant uses when the owner says "send Mehta a quote for 50 pipes at 200". The built-in PDF fonts can't draw ₹ (it's written as Rs.) or non-Latin scripts (shown as ?).
+
+**Running a team from a sheet (rules, follow-ups, activity):**
+- **Google Sheets: read tab as text** reads a tab like *Bot Rules* (one rule per line) for an AI step's instructions. It's kept for 10 minutes, so the owner can change how the bots behave by editing the sheet, without touching the workflow.
+- **Log changes to tab** (on *add row* and *update row*) writes every change to an *Activity* tab: When, Who, Tab, Row, Name and what changed from what to what. No AI involved, and a missing tab never breaks the change itself.
+- **Follow-ups: ask someone** sends a team member a question on WhatsApp, writes it to a *Follow-ups* tab (ID, Asked At, Person, Phone, About, Question, Status, Reminders, Next Reminder, Answer) and puts it in their shared memory. It won't ask the same thing twice while the first is still waiting. **Follow-ups: remind or give up** (run it hourly) re-asks after the wait and, after the set number of reminders, marks it "No reply" so you can tell the owner. **Follow-ups: mark answered** goes right after a WhatsApp trigger: whatever that person writes counts as the answer.
+- **Shared memory** (AI agent, Memory = "Shared"): every workflow talking to the same person adds to one conversation, keyed by their phone number. A checker's question, a morning list or a quotation sent from another workflow (switch on "Add to the person's shared memory" in the send step) is then part of the chat, so a reply like "done" makes sense to the assistant.
+- **Search** (find rows): column `any` searches every column, a tab can list several tabs (`Enquiries, Architect Data`), every word has to appear somewhere in the row, and "If nothing matches: look in every column, then close spellings" also offers similar names when there are only a few hits (Rajes finds Rajesh), marked `closeMatch`. Phone numbers match with or without +91, spaces, leading zeros, or two numbers in one cell.
+- Numbers written without a country code (like 9812345678 in a sheet) get the **Country code** of the WhatsApp connection (91 by default) instead of going to the wrong person.
+
+**Files:** **Make Excel file** (from a table, the incoming items, or a sheet tab with an optional filter, like "Assigned To contains Ravi"), **Photos to PDF**, **Merge PDFs**, **Pick PDF pages** and **Stamp text on a PDF**. Files come from WhatsApp media IDs, data: URLs or base64; each step can send the result on WhatsApp right away. Given to an AI agent as tools, the file's contents are never sent to the model, only its name and size, so they cost almost nothing. Photos and files people send are remembered in the chat by their media ID, so "make one PDF of the photos I sent" works.
 
 **Gmail search** needs permission to read mail, which older connections don't have: press **Reconnect** on the Google account once.
 

@@ -25,6 +25,8 @@ async function callJson(
   req: { method: string; url: string; headers?: Record<string, string>; body?: unknown; timeoutMs?: number },
 ): Promise<HttpResponse> {
   const headers: Record<string, string> = { accept: "application/json", ...(req.headers ?? {}) };
+  // A change to a spreadsheet makes earlier reads of it stale.
+  if (req.method !== "GET" && services.readCache && /sheets\.googleapis\.com\/v4\/spreadsheets\//.test(req.url)) services.readCache.clear();
   let body: string | undefined;
   if (req.body !== undefined) {
     body = JSON.stringify(req.body);
@@ -291,7 +293,16 @@ const sheetsRead: AppAction = async (p, services) => {
 };
 
 /** All rows as {row, header->value}, read once per step. */
-export async function readTable(services: EngineServices, token: string | undefined, id: string, sheet: unknown, limit = 5000) {
+export async function readTable(services: EngineServices, token: string | undefined, id: string, sheet: unknown, limit = 5000): Promise<{ header: string[]; rows: string[][] }> {
+  const key = `table|${id}|${toText(sheet)}|${limit}`;
+  const hit = services.readCache?.get(key) as { header: string[]; rows: string[][] } | undefined;
+  if (hit) return { header: [...hit.header], rows: hit.rows.map((r) => [...r]) };
+  const table = await readTableUncached(services, token, id, sheet, limit);
+  services.readCache?.set(key, table);
+  return { header: [...table.header], rows: table.rows.map((r) => [...r]) };
+}
+
+async function readTableUncached(services: EngineServices, token: string | undefined, id: string, sheet: unknown, limit: number) {
   const res = await callJson(services, { method: "GET", url: sheetsUrl(id, sheetRange(sheet, `A1:ZZ${limit + 1}`)), headers: { authorization: `Bearer ${token}` } });
   if (res.status >= 400) throw googleError(res, "Google Sheets");
   const [head = [], ...rows] = (res.body as { values?: unknown[][] }).values ?? [];

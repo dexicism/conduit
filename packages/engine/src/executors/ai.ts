@@ -440,7 +440,8 @@ export const agentExecutor: Executor = async (ctx) => {
     }
     messages.push({ role: "user", content: [...(await imageBlocks(ctx, p)), { type: "text", text: `[${timeNow(ctx.services.now())}] ${prompt}` }] });
 
-    const tools = bindTools(ctx, item, i, 0);
+    // Tools in this turn share one read cache (searching then updating reads a tab once).
+    const tools = bindTools({ ...ctx, services: { ...ctx.services, readCache: new Map() } }, item, i, 0);
     const byName = new Map(tools.map((t) => [t.spec.name, t]));
     let toolCalls = 0;
     let answer: string | null = null;

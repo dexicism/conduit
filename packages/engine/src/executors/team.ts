@@ -96,6 +96,9 @@ export function isAllowed(person: Person, rule: string, roles: string): boolean 
   return true;
 }
 
+/** Team tabs kept for a short while, so every message doesn't read the sheet. */
+const teamCache = new Map<string, { at: number; table: { header: string[]; rows: string[][] } }>();
+
 export const teamCheckExecutor: Executor = async (ctx) => {
   const allowed: Item[] = [];
   const denied: Item[] = [];
@@ -104,8 +107,16 @@ export const teamCheckExecutor: Executor = async (ctx) => {
   for (let i = 0; i < ctx.items.length; i++) {
     const p = ctx.params(i);
     if (!table) {
-      const { accessToken } = await account(p, "google", ctx.services);
-      table = await readTable(ctx.services, accessToken, spreadsheetIdOf(p.spreadsheetId), p.sheet);
+      const id = spreadsheetIdOf(p.spreadsheetId);
+      const key = `${toText(p.credential)}|${id}|${toText(p.sheet)}`;
+      const keepMs = Math.max(0, Number(p.cacheSeconds ?? 0) || 0) * 1000;
+      const hit = teamCache.get(key);
+      if (keepMs && hit && Date.now() - hit.at < keepMs) table = hit.table;
+      else {
+        const { accessToken } = await account(p, "google", ctx.services);
+        table = await readTable(ctx.services, accessToken, id, p.sheet);
+        if (keepMs) teamCache.set(key, { at: Date.now(), table });
+      }
     }
     const phone = toText(p.phone).trim();
     const person = personFrom(table.header, table.rows, phone);

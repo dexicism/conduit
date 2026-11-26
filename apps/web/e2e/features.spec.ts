@@ -228,7 +228,8 @@ test("WhatsApp (linked phone): add a number, see the link screen, and one live w
   await expect(dialog).toBeHidden();
   const row = page.getByRole("list", { name: "Accounts" }).getByRole("listitem").filter({ hasText: label });
   await expect(row.getByRole("button", { name: "Link phone" })).toBeVisible();
-  await expect(row.getByRole("button", { name: `Update keys for ${label}` })).toHaveCount(0);
+  // Its one setting is the country code for numbers written without one.
+  await expect(row.getByRole("button", { name: `Update keys for ${label}` })).toBeVisible();
 
   const creds = (await (await page.request.get("/api/credentials?app=whatsappWeb")).json()).credentials as Array<{ id: string; label: string }>;
   const cred = creds.find((c) => c.label === label)!.id;

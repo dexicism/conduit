@@ -508,6 +508,7 @@ export const teamCheck: NodeDefinition = {
       ],
     },
     { kind: "string", name: "roles", label: "Roles", required: true, expression: false, placeholder: "Owner, Manager", showIf: { field: "allow", equals: ["roles"] } },
+    { kind: "number", name: "cacheSeconds", label: "Keep the team list for (seconds)", default: 0, min: 0, max: 3600, description: "Saves reading the sheet on every message. Changes to the tab show up after this long." },
   ],
   outputSample: {
     from: "919812345678",

@@ -20,14 +20,27 @@ function Wait-Port([int]$port, [int]$seconds, [string]$name) {
 
 Write-Host ""
 Write-Host "  Starting Conduit..." -ForegroundColor Cyan
+# Started on purpose: the watchdog (if it's on) may keep it running again.
+Remove-Item (Join-Path $root ".data\stopped") -ErrorAction SilentlyContinue
+
+# Which AI is set in apps\web\.env.local? Ollama is only started when it's the one in use.
+$envFile = Join-Path $root "apps\web\.env.local"
+$provider = ""
+if (Test-Path $envFile) {
+  $line = Select-String -Path $envFile -Pattern '^\s*AI_PROVIDER\s*=\s*(\S+)' | Select-Object -First 1
+  if ($line) { $provider = $line.Matches[0].Groups[1].Value.Trim('"').ToLower() }
+}
+$useOllama = ($provider -eq "ollama")
 
 if (-not (Test-Path "$root\node_modules")) {
   Write-Host "  First run: installing packages (a few minutes)..."
   npm install
 }
 
-# 1. Local AI
-if (Test-Port 11434) {
+# 1. Local AI (only when AI_PROVIDER=ollama)
+if (-not $useOllama) {
+  Write-Host "  [ok] AI: $(if ($provider) { $provider } else { 'not set' }) (no local model needed)"
+} elseif (Test-Port 11434) {
   Write-Host "  [ok] AI (Ollama) already running"
 } else {
   $ollama = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama app.exe"
@@ -79,7 +92,7 @@ while ($true) {
   Start-Sleep -Seconds 2
 }
 # Warm up the AI model so the first reply is quick.
-if (Test-Port 11434) {
+if ($useOllama -and (Test-Port 11434)) {
   try {
     $body = '{"model":"qwen3:8b","prompt":"hi","think":false,"stream":false,"keep_alive":"30m","options":{"num_predict":1,"num_ctx":16384}}'
     Invoke-RestMethod "http://127.0.0.1:11434/api/generate" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 120 | Out-Null
@@ -93,4 +106,7 @@ Start-Process "http://localhost:3000/app"
 Write-Host ""
 Write-Host "  Conduit is running at http://localhost:3000" -ForegroundColor Green
 Write-Host "  Keep the two minimized 'Conduit' windows open. To stop everything, run 'Stop Conduit'."
+if (-not (Get-ScheduledTask -TaskName "Conduit watchdog" -ErrorAction SilentlyContinue)) {
+  Write-Host "  Tip: run 'Keep Conduit running' once, so it starts at sign-in and restarts itself if it stops." -ForegroundColor Yellow
+}
 Write-Host ""

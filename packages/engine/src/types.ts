@@ -149,6 +149,11 @@ export interface EngineServices {
   integrations?: IntegrationServices;
   /** Workspace variables, for ${['$vars']['NAME']}. */
   vars?: Record<string, string>;
+  /**
+   * Sheet reads kept for the length of one AI agent turn, so several tool calls
+   * don't read the same tab again. Any write to that spreadsheet clears it.
+   */
+  readCache?: Map<string, unknown>;
 }
 
 export interface ResponseSpec {

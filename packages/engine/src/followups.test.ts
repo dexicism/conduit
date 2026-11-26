@@ -92,7 +92,7 @@ function setup() {
     if (r.status !== "success") throw new Error(r.status === "failed" ? r.error.message : r.status);
     return (outputs.s ?? []).map((i) => i.json);
   };
-  return { sheets, sent, store, step, later: (min: number) => (now = new Date(now.getTime() + min * 60_000)) };
+  return { sheets, sent, store, step, services, later: (min: number) => (now = new Date(now.getTime() + min * 60_000)) };
 }
 
 describe("follow-ups", () => {
@@ -156,5 +156,66 @@ describe("follow-ups", () => {
     expect((await step("app.sheets.text", { sheet: "Bot Rules" }))[0]!.lines).toBe(2);
     expect((await step("app.sheets.text", { sheet: "Bot Rules", cacheMinutes: 0 }))[0]!.lines).toBe(3);
     expect(await step("app.sheets.text", { sheet: "No such tab", cacheMinutes: 0 })).toEqual([{ text: "", lines: 0, missing: true }]);
+  });
+
+  it("reads a tab once per AI turn, and again after a change", async () => {
+    const { sheets, services } = setup();
+    const find = (id: string) => ({
+      id,
+      type: "tool.app.sheets.find",
+      label: id,
+      position: { x: 0, y: 200 },
+      parameters: { ...defaultParameters(getDefinition("tool.app.sheets.find")!), credential: "g", spreadsheetId: "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", sheet: "Enquiries", toolName: id, column: "any", value: "={{AI('value', `What`, 'string')}}", match: "contains" },
+      connections: {},
+    });
+    const upd = {
+      id: "upd",
+      type: "tool.app.sheets.update",
+      label: "upd",
+      position: { x: 0, y: 200 },
+      parameters: { ...defaultParameters(getDefinition("tool.app.sheets.update")!), credential: "g", spreadsheetId: "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", sheet: "Enquiries", toolName: "upd", column: "Phone No.", value: "9800000101", match: "phone", columns: [{ key: "Status", value: "Won" }] },
+      connections: {},
+    };
+    const g = workflowGraphSchema.parse({
+      nodes: [
+        { id: "t", type: "trigger.manual", label: "t", position: { x: 0, y: 0 }, parameters: {}, connections: { main: [{ targetId: "agent" }] } },
+        {
+          id: "agent",
+          type: "ai.agent",
+          label: "agent",
+          position: { x: 200, y: 0 },
+          parameters: { ...defaultParameters(getDefinition("ai.agent")!), prompt: "go", instructions: "x" },
+          connections: { tool: [{ targetId: "f1", targetHandle: "agent" }, { targetId: "f2", targetHandle: "agent" }, { targetId: "upd", targetHandle: "agent" }] },
+        },
+        find("f1"),
+        find("f2"),
+        upd,
+      ],
+    });
+    let round = 0;
+    const results: string[] = [];
+    const svc: EngineServices = {
+      ...services,
+      llm: {
+        chat: async (req) => {
+          const last = req.messages.at(-1)!.content[0] as { type: string; content?: string };
+          if (last.type === "tool_result") results.push(last.content!);
+          round++;
+          const call = (name: string) => ({ content: [{ type: "tool_use" as const, id: `c${round}`, name, input: { value: "mohan" } }], stopReason: "tool_use" as const, model: "m", usage: { inputTokens: 1, outputTokens: 1 } });
+          if (round === 1) return call("f1");
+          if (round === 2) return call("f2");
+          if (round === 3) return call("upd");
+          if (round === 4) return call("f1");
+          return { content: [{ type: "text", text: "done" }], stopReason: "end_turn", model: "m", usage: { inputTokens: 1, outputTokens: 1 } };
+        },
+      },
+    };
+    const reads = () => sheets.http.mock.calls.filter(([r]) => r.method === "GET" && r.url.includes("Enquiries")).length;
+    const before = reads();
+    const r = await runExecution({ graph: g, state: initialState(g, "t", [{ json: {} }]), services: svc });
+    expect(r.status).toBe("success");
+    // f1 reads, f2 uses the copy, the update reads (from the cache too) and writes, f1 reads fresh data.
+    expect(reads() - before).toBe(2);
+    expect(results.at(-1)).toContain("Won");
   });
 });

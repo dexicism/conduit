@@ -1,5 +1,8 @@
 # Stops the Conduit app and its database. Ollama keeps running (it uses little when idle).
 $root = Split-Path -Parent $PSScriptRoot
+# Stopped on purpose: the watchdog leaves it off until "Start Conduit".
+New-Item -ItemType Directory -Force (Join-Path $root ".data") | Out-Null
+Set-Content (Join-Path $root ".data\stopped") (Get-Date) -Encoding utf8
 # Ask the database to shut down cleanly first, so the next start doesn't need a recovery.
 if (Get-NetTCPConnection -LocalPort 27018 -State Listen -ErrorAction SilentlyContinue) {
   Push-Location $root
