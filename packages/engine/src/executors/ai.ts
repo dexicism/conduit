@@ -5,6 +5,23 @@ import type { ExecContext, Executor, Item, LlmBlock, LlmMessage, LlmRequest, Llm
 import { StepError, SHARED_MEMORY } from "../types";
 import { parseJsonParam, toNumber, toText } from "../values";
 import { APP_ACTIONS } from "./apps";
+import { excelExecutor, imagesToPdfExecutor, pdfMergeExecutor, pdfPagesExecutor, pdfStampExecutor } from "./files";
+
+/** File steps the agent can use as tools (`tool.doc.excel` …). */
+const DOC_TOOLS: Record<string, Executor> = {
+  "doc.excel": excelExecutor,
+  "doc.imagesToPdf": imagesToPdfExecutor,
+  "doc.pdfMerge": pdfMergeExecutor,
+  "doc.pdfPages": pdfPagesExecutor,
+  "doc.pdfStamp": pdfStampExecutor,
+};
+
+/** Tool results go back to the model: leave out file contents (base64), which would cost thousands of tokens. */
+function withoutFileData(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(withoutFileData);
+  if (!v || typeof v !== "object") return v;
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([k]) => k !== "base64").map(([k, x]) => [k, withoutFileData(x)]));
+}
 import { performHttp } from "./core";
 
 const MAX_TOOL_OUTPUT = 20_000;
@@ -374,11 +391,19 @@ function bindTools(ctx: ExecContext, item: Item, itemIndex: number, depth: numbe
         default: {
           // App action tools: `tool.<action type>` runs that action with the agent's values filled in.
           const action = t.type.startsWith("tool.app.") ? APP_ACTIONS[t.type.slice("tool.".length)] : undefined;
-          if (!action) return null;
+          const doc = t.type.startsWith("tool.doc.") ? DOC_TOOLS[t.type.slice("tool.".length)] : undefined;
+          if (!action && !doc) return null;
           const slots = collectAiFills(t.parameters);
           return {
             spec: { name, description, inputSchema: aiFillSchema(slots) },
-            run: async (args) => action(fillAiPlaceholders(params, args), ctx.services),
+            run: async (args) => {
+              const filled = fillAiPlaceholders(params, args) as Record<string, unknown>;
+              if (action) return withoutFileData(await action(filled, ctx.services));
+              const logs: string[] = [];
+              const res = await doc!({ ...ctx, node: t, items: [{ json: {} }], params: () => filled, log: (m) => void logs.push(m) });
+              const out = "outputs" in res ? (res.outputs.main ?? []).map((it) => it.json) : [];
+              return withoutFileData(logs.length ? { result: out, notes: logs } : out);
+            },
           };
         }
       }

@@ -384,19 +384,25 @@ const sheetsFind: AppAction = async (p, services) => {
       if (hit) found.push({ found: true, ...(many ? { tab: String(tab) } : {}), ...rowObject(header, cells, i + 2) });
     }
   }
-  if (!found.length && p.ifNothing === "widen" && how !== "phone") {
-    // Nothing in that column: try every column, then spellings that are close (Rajesh / Rajes, Mohit / Mohith).
+  if (p.ifNothing === "widen" && how !== "phone" && found.length < 5) {
+    // Few or no hits: also try every column, then spellings that are close (Rajesh / Rajes, Mohit / Mohith).
+    // Close spellings are added even when something matched, because a word can match the wrong row
+    // (a name inside someone else's address) while the person meant is spelled a bit differently.
+    const seenRows = new Set(found.map((f) => `${String(f.tab ?? "")}:${String(f.row)}`));
     for (const pass of anyColumn ? ["close"] : ["words", "close"]) {
+      if (pass === "words" && found.length) continue;
       for (const tab of many ? tabs : [p.sheet]) {
         const { header, rows } = await readTable(services, accessToken, id, tab);
         for (let i = 0; i < rows.length && found.length < limit; i++) {
+          const key = `${many ? String(tab) : ""}:${i + 2}`;
+          if (seenRows.has(key)) continue;
           const cells = rows[i]!;
           if (pass === "words" ? rowHasWords(cells, wanted) : rowHasCloseWords(cells, wanted)) {
+            seenRows.add(key);
             found.push({ found: true, ...(pass === "close" ? { closeMatch: true } : {}), ...(many ? { tab: String(tab) } : {}), ...rowObject(header, cells, i + 2) });
           }
         }
       }
-      if (found.length) break;
     }
   }
   // Always one item at least, so the workflow can branch on "found".

@@ -53,6 +53,7 @@ export const NODE_DEFINITIONS: readonly NodeDefinition[] = [
   subAgentTool,
   thinkTool,
   ...APP_ACTION_DEFINITIONS.filter((d) => d.asTool).map(appActionTool),
+  ...[excelNode, imagesToPdfNode, pdfMergeNode, pdfPagesNode, pdfStampNode].map(appActionTool),
   ...APP_ACTION_DEFINITIONS,
   ifNode,
   switchNode,

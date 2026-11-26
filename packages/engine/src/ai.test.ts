@@ -181,6 +181,21 @@ describe("AI Agent", () => {
       { role: "assistant", text: "Great, marked as sent." },
     ]);
   });
+  it("uses file steps as tools and keeps file contents out of what the model reads", async () => {
+    const g = agentGraph([{ id: "xl", type: "tool.doc.excel", parameters: { toolName: "make_excel", source: "rows", rows: buildAiFill("rows", "The table"), fileName: "leads" } }]);
+    const seen: LlmRequest[] = [];
+    const svc = services((req) => {
+      seen.push(structuredClone(req));
+      if (seen.length === 1) return reply([{ type: "tool_use", id: "x1", name: "make_excel", input: { rows: "Name | Phone\nMohan | 9800000101" } }], "tool_use");
+      return reply([text("Here is your Excel file.")]);
+    });
+    const r = await run(g, [{ json: { q: "excel please" } }], svc);
+    expect(r.status).toBe("success");
+    const result = seen[1]!.messages.at(-1)!.content[0] as { type: string; content: string };
+    expect(result.type).toBe("tool_result");
+    expect(JSON.parse(result.content)).toEqual([{ file: { fileName: "leads.xlsx", mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: expect.any(Number), rows: 1 } }]);
+    expect(result.content).not.toContain("base64");
+  });
   it("calls sub-workflows and code tools", async () => {
     const g = agentGraph([
       { id: "wf", type: "tool.workflow", parameters: { workflowId: "abc", input: `{"request": "${buildAiFill("request", "Req")}"}` } },
