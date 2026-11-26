@@ -38,7 +38,7 @@ const poller = telegramModeFromEnv() === "polling" && process.env.TELEGRAM_POLL 
 if (poller) console.info("[worker] Telegram: polling for messages");
 // Linked WhatsApp numbers: each one is owned by one worker at a time (a lease), so this is safe with several workers.
 // Keep WHATSAPP_WEB_DIR on a disk that survives restarts, or the phone has to be linked again.
-const whatsappWeb = process.env.WHATSAPP_WEB !== "0" ? startWhatsappWeb(db, runtime, { authRoot: process.env.WHATSAPP_WEB_DIR ?? resolve(".data", "whatsapp-web") }) : null;
+const whatsappWeb = process.env.WHATSAPP_WEB !== "0" ? startWhatsappWeb(db, runtime, { authRoot: process.env.WHATSAPP_WEB_DIR ?? resolve(".data", "whatsapp-web"), integrations }) : null;
 // Backups: turn on in exactly one worker (BACKUP=1), pointing BACKUP_DIR at a disk that's backed up itself.
 const backups = process.env.BACKUP === "1" ? startBackups(db, { dir: process.env.BACKUP_DIR ?? resolve(".data", "backups"), everyHours: Number(process.env.BACKUP_EVERY_HOURS) || 24, keep: Number(process.env.BACKUP_KEEP) || 14 }) : null;
 console.info(`[worker] AI provider: ${ai.provider}`);

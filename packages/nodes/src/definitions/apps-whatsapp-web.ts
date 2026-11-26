@@ -62,6 +62,20 @@ export const whatsappWebTrigger: NodeDefinition = {
       placeholder: "+919876543210, +919812345678",
       description: "Optional. Messages from anyone else are ignored. Leave empty to listen to everyone.",
     },
+    {
+      kind: "select",
+      name: "allowFrom",
+      label: "Listen to",
+      default: "all",
+      options: [
+        { value: "all", label: "Everyone (or the numbers above)" },
+        { value: "sheet", label: "Only people in a sheet tab (e.g. your Team tab)" },
+      ],
+      description: "With a sheet tab, messages from anyone not in its Phone column are dropped right away: no run, nothing stored. The list is read again every 2 minutes.",
+    },
+    { kind: "credential", name: "teamCredential", label: "Google account", app: "google", showIf: { field: "allowFrom", equals: ["sheet"] } },
+    { kind: "string", name: "teamSpreadsheet", label: "Spreadsheet", expression: false, placeholder: "Spreadsheet URL or ID", showIf: { field: "allowFrom", equals: ["sheet"] } },
+    { kind: "string", name: "teamTab", label: "Tab", default: "Team", expression: false, showIf: { field: "allowFrom", equals: ["sheet"] } },
   ],
   outputSample: {
     messageId: "3EB0C4A1F2D9B7E5A1C2",

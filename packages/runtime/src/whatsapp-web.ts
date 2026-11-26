@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { access, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Binary, MongoServerError, ObjectId, type Db } from "mongodb";
+import type { Integrations } from "./integrations";
 import type { Runtime, StartInput } from "./runtime";
 import { collections } from "./store";
 
@@ -441,6 +442,30 @@ export interface WhatsappWebOptions {
   typingDelayMs?: [number, number];
   /** Stop showing a QR code nobody scans after this long. */
   qrTimeoutMs?: number;
+  /** For "only people in a sheet tab": reads that tab with the workspace's Google account. */
+  integrations?: Integrations;
+  /** How long a team list read from a sheet is kept (ms). */
+  allowListMs?: number;
+}
+
+/** Digits of every phone number in a sheet tab's phone column (Phone, Mobile, WhatsApp…). */
+async function sheetPhones(integrations: Integrations, workspaceId: ObjectId, p: Record<string, unknown>): Promise<string[]> {
+  const svc = integrations.servicesFor(workspaceId, new Set());
+  const { accessToken } = (await svc.credential(String(p.teamCredential ?? ""), "google")) as { accessToken?: string };
+  const raw = String(p.teamSpreadsheet ?? "").trim();
+  const id = /\/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(raw)?.[1] ?? raw;
+  if (!/^[A-Za-z0-9_-]{10,}$/.test(id)) throw new Error("Team sheet: enter a spreadsheet URL or ID");
+  const tab = String(p.teamTab ?? "Team").trim() || "Team";
+  const url = svc.apiUrl(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(`'${tab.replace(/'/g, "''")}'!A1:ZZ2000`)}`);
+  const res = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new Error(`Team sheet: Google Sheets said ${res.status}`);
+  const [head = [], ...rows] = ((await res.json()) as { values?: string[][] }).values ?? [];
+  const col = head.findIndex((h) => /phone|mobile|whatsapp|number/i.test(String(h)));
+  if (col < 0) throw new Error(`Team sheet: the "${tab}" tab needs a Phone column`);
+  return rows
+    .flatMap((r) => String(r[col] ?? "").split(/[|,;/]|\bor\b/i))
+    .map((x) => x.replace(/\D/g, "").replace(/^0+/, ""))
+    .filter((d) => d.length >= 7);
 }
 
 const LEASE_MS = 45_000;
@@ -470,6 +495,32 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
     botSent: Map<string, number>;
   }
   const local = new Map<string, Local>();
+  /** Team lists read from sheets, per trigger: kept a short while so every message doesn't read the sheet. */
+  // Messages arriving together share one read (the promise is kept, not just the result).
+  const allowLists = new Map<string, { at: number; phones: Promise<string[]> }>();
+  const allowListMs = options.allowListMs ?? 120_000;
+  async function teamAllows(workspaceId: ObjectId, p: Record<string, unknown>, from: string | null): Promise<boolean> {
+    if (!options.integrations) return true;
+    const key = `${String(workspaceId)}|${String(p.teamCredential)}|${String(p.teamSpreadsheet)}|${String(p.teamTab)}`;
+    let entry = allowLists.get(key);
+    if (!entry || Date.now() - entry.at > allowListMs) {
+      entry = { at: Date.now(), phones: sheetPhones(options.integrations, workspaceId, p) };
+      allowLists.set(key, entry);
+    }
+    let phones: string[];
+    try {
+      phones = await entry.phones;
+    } catch (e) {
+      // Can't read the sheet right now: let the message through (the workflow's own checks still apply)
+      // rather than locking the team out, and try again on the next message.
+      if (allowLists.get(key) === entry) allowLists.delete(key);
+      console.warn("[whatsapp-web] couldn't read the team list:", (e as Error).message);
+      return true;
+    }
+    if (!from) return false;
+    const d = from.replace(/^0+/, "");
+    return phones.some((x) => x.endsWith(d) || d.endsWith(x));
+  }
   let stopped = false;
   const timers: NodeJS.Timeout[] = [];
   const authDir = (id: string) => join(options.authRoot, id);
@@ -617,6 +668,8 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
       .map((n) => n.replace(/\D/g, ""))
       .filter(Boolean);
     if (allowed.length && (!from || !allowed.some((a) => from.endsWith(a) || a.endsWith(from)))) return;
+    // Only people in a sheet tab: everyone else is dropped here, before any run (or sheet read) starts.
+    if (p.allowFrom === "sheet" && !(await teamAllows(l.workspaceId, p, from))) return;
 
     // One run per message, even if WhatsApp delivers it twice.
     try {

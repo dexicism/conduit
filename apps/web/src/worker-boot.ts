@@ -23,7 +23,7 @@ export function bootWorker(): Promise<void> {
       console.info("[worker] Telegram: polling for messages (no public address needed)");
     }
     if (process.env.WHATSAPP_WEB !== "0") {
-      startWhatsappWeb(db, runtime, { authRoot: resolve(process.cwd(), ".data", "whatsapp-web") });
+      startWhatsappWeb(db, runtime, { authRoot: resolve(process.cwd(), ".data", "whatsapp-web"), integrations });
       console.info("[worker] WhatsApp (linked phone): ready");
     }
     if (process.env.BACKUP !== "0") {

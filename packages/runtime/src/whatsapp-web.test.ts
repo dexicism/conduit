@@ -7,6 +7,8 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createIntegrations, type Integrations } from "./integrations";
 import { createHttpClient } from "./net";
@@ -313,6 +315,74 @@ describe("WhatsApp on a linked phone", () => {
       expect((await whatsappWebStatus(db, ws, cred)).status).toBe("idle");
     } finally {
       await wa.stop();
+    }
+  }, 120_000);
+});
+
+describe("only people in a sheet tab", () => {
+  it("drops messages from anyone not in the team tab before any run starts, and lets the team through", async () => {
+    // A pretend Google Sheets with a Team tab.
+    let reads = 0;
+    const server = createServer((req, res) => {
+      reads++;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ values: [["Name", "Phone"], ["Ravi", "098123 45678"], ["Asha", "9811112222 | 9811113333"]] }));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const fakeIntegrations = {
+      servicesFor: () => ({ credential: async () => ({ accessToken: "t" }), apiUrl: (u: string) => u.replace("https://sheets.googleapis.com", base) }),
+    } as unknown as Integrations;
+    const ws = new ObjectId();
+    const cred = (await integ.create({ workspaceId: ws, userId, app: "whatsappWeb", label: "Team only", values: {} }))._id.toHexString();
+    const sockets: FakeSocket[] = [];
+    const wa = startWhatsappWeb(db, rt, {
+      authRoot,
+      syncMs: 60_000,
+      outboxMs: 20,
+      typingDelayMs: [0, 0],
+      integrations: fakeIntegrations,
+      socketFactory: async (dir) => {
+        await writeFile(join(dir, "creds.json"), "{}");
+        const s = new FakeSocket();
+        if (dir.endsWith(cred)) sockets.push(s); // other tests' phones can be opened too: only count ours
+        return s as unknown as WaSocket;
+      },
+    });
+    try {
+      await requestWhatsappWebLink(db, ws, cred);
+      await wa.tick();
+      await until(() => sockets.length === 1);
+      sockets[0]!.emit("connection.update", { connection: "open" });
+      await until(async () => (await whatsappWebStatus(db, ws, cred)).status === "open");
+      const wf = new ObjectId();
+      await db.collection("workflows").insertOne({
+        _id: wf,
+        workspaceId: ws,
+        name: "team only",
+        revision: 1,
+        draft: graph([{ id: "wa", type: "trigger.whatsappWeb", parameters: { credential: cred, allowFrom: "sheet", teamCredential: "g", teamSpreadsheet: "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUv/edit", teamTab: "Team" } }]),
+        publishedVersionId: null,
+        archivedAt: null,
+      });
+      await createTriggerService(db, client).publish(ws, wf, userId);
+      sockets[0]!.emit("messages.upsert", {
+        type: "notify",
+        messages: [
+          msg({ id: "T1", text: "family chat", key: { remoteJidAlt: "919800000000@s.whatsapp.net" } }),
+          msg({ id: "T2", text: "from Ravi" }),
+          msg({ id: "T3", text: "from Asha's second number", key: { remoteJidAlt: "919811113333@s.whatsapp.net" } }),
+        ],
+      });
+      await until(async () => (await rt.collections.executions.countDocuments({ workflowId: wf })) === 2);
+      await new Promise((r) => setTimeout(r, 300));
+      const texts = (await rt.collections.executions.find({ workflowId: wf }).toArray()).map((e) => (e.triggerItems[0]!.json as { text: string }).text).sort();
+      expect(texts).toEqual(["from Asha's second number", "from Ravi"]);
+      // The list is kept: three messages, one read of the sheet.
+      expect(reads).toBe(1);
+    } finally {
+      await wa.stop();
+      server.close();
     }
   }, 120_000);
 });
