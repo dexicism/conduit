@@ -670,6 +670,127 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
       },
     ],
   },
+  {
+    id: "lead-checker",
+    name: "Checker: ask the team about stuck leads",
+    description:
+      "Three times a day, an AI checker reads the leads that are overdue or due today and asks each person about theirs: one tracked WhatsApp message per person, with all their points together. Questions are kept in a Follow-ups tab; replies reach your team assistant, which updates the sheet. Rules come from a Bot Rules tab you can edit. The owner gets a 3-line summary.",
+    apps: ["google", "whatsappWeb"],
+    needsAi: true,
+    setup:
+      "Your sheet needs a Leads tab (Name, Phone, Assigned To, Status, Next Follow-up, Notes), a Team tab (Name, Phone, Role, Access), a Follow-ups tab (ID, Asked At, Person, Phone, About, Question, Status, Reminders, Next Reminder, Answer) and, if you like, a Bot Rules tab (one rule per line). Paste the sheet link into each sheet step, pick your Google account and linked number, set your time zone, and add the variable OWNER_PHONE. Pair it with \"Follow-up reminders\".",
+    steps: [
+      { id: "every", type: "trigger.schedule", label: "10:00, 14:00, 18:00", parameters: { mode: "cron", cron: "5 10,14,18 * * 1-6" }, to: ["rules"] },
+      { id: "rules", type: "app.sheets.text", label: "Bot Rules", parameters: { sheet: "Bot Rules", cacheMinutes: 10, ifMissing: "empty" }, to: ["due"] },
+      { id: "due", type: "app.tasks.due", label: "Overdue and due today", parameters: { sheet: "Leads", which: "due", daysAhead: 0, output: "summary", closedStatuses: "Won, Lost, Closed, Done", phonesFrom: "Team" }, to: ["waiting"] },
+      { id: "waiting", type: "app.sheets.text", label: "Follow-up questions", parameters: { sheet: "Follow-ups", cacheMinutes: 0, ifMissing: "empty" }, to: ["check"] },
+      {
+        id: "check",
+        type: "ai.agent",
+        label: "Checker",
+        parameters: {
+          instructions:
+            "You're the checker of a small sales team. You look at overdue and stuck leads and ask the person each lead is assigned to about them, using ask_followup (one call per person, all their points in one short, polite message). Don't ask about a lead that already has a question waiting, don't ask the owner, never contact customers, never invent facts. Then write the owner a summary of at most 3 lines: how many leads need attention and who you asked.\n\nRules from the owner:\n${['rules']['text']}",
+          prompt:
+            "Overdue or due today (${['due']['today']}): ${['due']['count']} leads.\n${['due']['text']}\n\nDetails: ${['due']['tasks']}\n\nFollow-up questions so far (Status Waiting = still open):\n${['waiting']['text']}",
+          effort: "low",
+          memory: "none",
+        },
+        tools: ["ask"],
+        to: ["summary"],
+      },
+      {
+        id: "ask",
+        type: "tool.app.followups.ask",
+        label: "Ask someone (tracked)",
+        parameters: {
+          toolName: "ask_followup",
+          toolDescription: "Ask a team member a question on WhatsApp and keep track of it until they answer. Team members only, never customers.",
+          sheet: "Follow-ups",
+          person: "={{AI('person', `Their name as in the Team tab`, 'string')}}",
+          phone: "",
+          phonesFrom: "Team",
+          about: "={{AI('about', `The lead it's about`, 'string')}}",
+          question: "={{AI('question', `The message, short and polite`, 'string')}}",
+          waitMinutes: 60,
+          label: "Checker asked",
+        },
+      },
+      { id: "summary", type: "app.whatsappWeb.send", label: "Summary to the owner", parameters: { to: "${['$vars']['OWNER_PHONE']}", text: "*Checker*\n${['$input']['output']}" } },
+    ],
+  },
+  {
+    id: "followup-reminders",
+    name: "Follow-up reminders (hourly)",
+    description:
+      "Every hour during the working day: anyone who hasn't answered a question from the Follow-ups tab gets a WhatsApp reminder; after 2 reminders it's marked \"No reply\" and the owner is told. No AI, so it's free.",
+    apps: ["google", "whatsappWeb"],
+    setup: "Paste your sheet link into the second step (it needs a Follow-ups tab; the \"Checker\" template fills it), pick your Google account and linked number, set your time zone, and add the variable OWNER_PHONE.",
+    steps: [
+      { id: "every", type: "trigger.schedule", label: "Every hour 10:30-19:30", parameters: { mode: "cron", cron: "30 10-19 * * 1-6" }, to: ["remind"] },
+      { id: "remind", type: "app.followups.remind", label: "Remind or give up", parameters: { sheet: "Follow-ups", maxReminders: 2, waitMinutes: 60, reminderPrefix: "Reminder:", label: "Follow-up reminder" }, to: ["gaveUp"] },
+      {
+        id: "gaveUp",
+        type: "flow.filter",
+        label: "No answer after reminders",
+        parameters: { conditions: { combinator: "and", rules: [{ id: "r1", left: "${['$input']['action']}", operator: "equals", right: "gave_up" }] } },
+        to: ["tell"],
+      },
+      {
+        id: "tell",
+        type: "app.whatsappWeb.send",
+        label: "Tell the owner",
+        parameters: { to: "${['$vars']['OWNER_PHONE']}", text: "*No reply* from ${['$input']['person']} about ${['$input']['about']} (asked ${['$input']['askedAt']}):\n${['$input']['question']}" },
+      },
+    ],
+  },
+  {
+    id: "whatsapp-health",
+    name: "Email me when WhatsApp goes offline",
+    description:
+      "Every 15 minutes, checks that your linked WhatsApp number is connected. If it's been logged out or offline for 10 minutes, you get one email per outage (WhatsApp itself can't warn you when it's down). No AI.",
+    apps: ["whatsappWeb", "google"],
+    setup: "Pick your linked number and Google account, and add the variable OWNER_EMAIL with the address to warn.",
+    steps: [
+      { id: "every", type: "trigger.schedule", label: "Every 15 minutes", parameters: { mode: "interval", every: 15, unit: "minutes" }, to: ["status"] },
+      { id: "status", type: "app.whatsappWeb.status", label: "Is WhatsApp connected?", parameters: { alertAfterMinutes: 10 }, to: ["down"] },
+      {
+        id: "down",
+        type: "flow.filter",
+        label: "Down for 10+ minutes",
+        parameters: { conditions: { combinator: "and", rules: [{ id: "r1", left: "${['$input']['alert']}", operator: "isTrue", right: "" }] } },
+        to: ["once"],
+      },
+      { id: "once", type: "flow.onlyNew", label: "Once per outage", parameters: { key: "${['$input']['outageKey']}", firstRun: "pass" }, to: ["mail"] },
+      {
+        id: "mail",
+        type: "app.gmail.send",
+        label: "Email me",
+        parameters: {
+          to: "${['$vars']['OWNER_EMAIL']}",
+          subject: "WhatsApp bot is offline",
+          bodyType: "text",
+          body: "${['$input']['text']}\n\nIt can't receive or send messages until it's back. If it says logged out, open Connected apps > Link phone and scan the QR code with that phone.",
+        },
+      },
+    ],
+  },
+  {
+    id: "weekly-leads-excel",
+    name: "Weekly leads report as Excel",
+    description: "Every Monday at 9:00, the open leads from your sheet go to the owner on WhatsApp as an Excel file. No AI.",
+    apps: ["google", "whatsappWeb"],
+    setup: "Paste your sheet link into the Excel step, pick your Google account and linked number, set your time zone, and add the variable OWNER_PHONE. Change \"Only rows where\" to filter, e.g. Status contains Quotation.",
+    steps: [
+      { id: "every", type: "trigger.schedule", label: "Mondays 9:00", parameters: { mode: "cron", cron: "0 9 * * 1" }, to: ["excel"] },
+      {
+        id: "excel",
+        type: "doc.excel",
+        label: "Leads as Excel",
+        parameters: { source: "sheet", sheet: "Leads", filterColumn: "", filterValue: "", sheetName: "Leads", fileName: "leads", sendTo: "${['$vars']['OWNER_PHONE']}", caption: "This week's leads" },
+      },
+    ],
+  },
 ];
 
 export function getTemplate(id: string): WorkflowTemplate | undefined {

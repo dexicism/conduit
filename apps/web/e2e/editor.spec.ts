@@ -327,4 +327,33 @@ test.describe("draft API", () => {
     const dangling = { nodes: [{ ...graph.nodes[0] }] };
     expect((await page.request.put(`/api/workflows/${id}/draft`, { data: { expectedRevision: 1, graph: dangling } })).status()).toBe(400);
   });
+
+  test("file and team steps: add Make Excel, its fields follow the source; a Checker template opens", async ({ page }) => {
+    const id = await createWorkflow(page, `Editor files ${Date.now()}`);
+    await page.goto(`/app/workflows/${id}`);
+    await page.getByRole("button", { name: "Add a trigger" }).click();
+    await pick(page, "Manual start");
+    await closePanel(page);
+    await page.getByRole("button", { name: "Add a step after Manual start" }).click();
+    await pick(page, "Make Excel file");
+    const panel = page.getByRole("complementary", { name: "Configure Make Excel file" });
+    await expect(panel.getByLabel("Table", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Spreadsheet", { exact: true })).toHaveCount(0);
+    await panel.getByLabel("Rows from").selectOption("sheet");
+    await expect(panel.getByLabel("Table", { exact: true })).toHaveCount(0);
+    await expect(panel.getByLabel("Only rows where column", { exact: true })).toBeVisible();
+    await closePanel(page);
+    await waitSaved(page);
+    const d = await getDraft(page, id);
+    expect(d.draft.nodes.find((n) => n.type === "doc.excel")!.parameters.source).toBe("sheet");
+
+    // The checker template: an AI agent with a tracked "ask someone" tool.
+    const res = await page.request.post("/api/templates/lead-checker");
+    expect(res.status()).toBe(201);
+    const wf = await res.json();
+    expect(wf.draft.nodes.map((n: { type: string }) => n.type)).toEqual(["trigger.schedule", "app.sheets.text", "app.tasks.due", "app.sheets.text", "ai.agent", "tool.app.followups.ask", "app.whatsappWeb.send"]);
+    await page.goto(`/app/workflows/${wf.id}`);
+    await expect(page.getByText("Ask someone (tracked)")).toBeVisible();
+    await expect(page.getByText("Follow-up questions")).toBeVisible();
+  });
 });
