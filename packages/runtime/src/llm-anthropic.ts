@@ -82,7 +82,17 @@ export function createAnthropicLlm(opts: { apiKey?: string; model?: string; clie
         ...(fallback ? { betas: [FALLBACK_BETA], fallbacks: "default" as const } : {}),
       };
       try {
-        const res = await client.beta.messages.create(params);
+        let res;
+        try {
+          res = await client.beta.messages.create(params);
+        } catch (err) {
+          // Strict tool schemas have limits (count, size); if the API turns them down, send the same request without strict.
+          const e = err as { status?: number; message?: string };
+          if (e.status === 400 && params.tools?.length && /strict|schema|grammar|too (many|complex|large)/i.test(e.message ?? "")) {
+            console.warn(`[ai] Claude rejected the strict tool schemas (${e.message}); trying again without strict`);
+            res = await client.beta.messages.create({ ...params, tools: params.tools.map((t) => ({ ...t, strict: false })) as typeof params.tools });
+          } else throw err;
+        }
         return {
           content: fromContent(res.content),
           stopReason: stopReason(res.stop_reason),

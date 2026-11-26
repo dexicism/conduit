@@ -50,6 +50,26 @@ describe("Claude", () => {
     expect(g.sent[0]!.model).toBe("claude-sonnet-5-5");
   });
 
+  it("sends the request again without strict tools if the API turns the strict schemas down", async () => {
+    const sent: Array<Record<string, any>> = [];
+    const client = {
+      beta: {
+        messages: {
+          async create(params: Record<string, any>) {
+            sent.push(params);
+            if (params.tools?.[0]?.strict) throw Object.assign(new Error("400 too many strict tools in one request"), { status: 400 });
+            return { content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", model: "claude-haiku-5-5", usage: { input_tokens: 1, output_tokens: 1 } };
+          },
+        },
+      },
+    };
+    const llm = createAnthropicLlm({ client: client as never });
+    const tools = [{ name: "find", description: "Find", inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false } }];
+    const r = await llm.chat(ask({ tools }));
+    expect(r.content).toEqual([{ type: "text", text: "ok" }]);
+    expect(sent.map((p) => p.tools[0].strict)).toEqual([true, false]);
+  });
+
   it("sends PDFs as documents and says when a file can't be read", async () => {
     const f = fakeClient();
     await createAnthropicLlm({ client: f.client }).chat(
