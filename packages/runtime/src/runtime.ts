@@ -1,6 +1,7 @@
 import { FINAL_STATUSES, workflowGraphSchema, type ExecutionMode, type WorkflowGraph } from "@conduit/core";
 import { initialState, nextScheduleRun, runExecution, StepError, type EngineServices, type Item, type LlmService } from "@conduit/engine";
 import { createMemoryService, ensureMemoryIndexes } from "./llm";
+import { ensureUsageIndexes, trackUsage } from "./ai-usage";
 import { createSeenService, ensureSeenIndexes } from "./seen";
 import { getDefinition } from "@conduit/nodes";
 import { createOutbound } from "./outbound";
@@ -90,7 +91,7 @@ export function createRuntime(
   const runCode = createSandbox({ memoryLimitMb: opts.codeMemoryMb, timeoutMs: opts.codeTimeoutMs });
   let indexes: Promise<void> | null = null;
   const ready = () =>
-    (indexes ??= Promise.all([ensureRuntimeIndexes(db), ensureMemoryIndexes(db), ensureCredentialIndexes(db), ensureSeenIndexes(db), ensureVariableIndexes(db)])
+    (indexes ??= Promise.all([ensureRuntimeIndexes(db), ensureMemoryIndexes(db), ensureCredentialIndexes(db), ensureSeenIndexes(db), ensureVariableIndexes(db), ensureUsageIndexes(db)])
       .then(() => undefined)
       .catch((e) => ((indexes = null), Promise.reject(e))));
   const expiry = () => new Date(Date.now() + opts.retentionDays * 86_400_000);
@@ -161,7 +162,7 @@ export function createRuntime(
       integrations: apps.integrations?.servicesFor(doc.workspaceId, secrets),
       runCode,
       now: () => new Date(),
-      llm: ai.llm,
+      llm: ai.llm ? trackUsage(ai.llm, db, doc.workspaceId) : undefined,
       memory: createMemoryService(db, doc.workflowId, doc.workspaceId),
       seen: createSeenService(db, doc.workflowId, !doc.isTest),
       executeWorkflow: async ({ workflowId, input, waitForResult }) => {

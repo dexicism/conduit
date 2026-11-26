@@ -994,13 +994,30 @@ function localIso(d: Date): string {
   const z = new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
   return z.toISOString().slice(0, 16).replace("T", " ");
 }
-const fromLocalIso = (s: string) => {
-  const t = Date.parse(s.trim().replace(" ", "T"));
+/**
+ * Reads a local time back: our own "2026-11-26 15:05", or the way Google Sheets
+ * shows a date it recognised ("26/11/2026 15:05:00", "26-11-26 15:05", "11/26/2026 15:05").
+ */
+export function fromLocalIso(v: string): number | null {
+  const s = v.trim();
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})/.exec(s);
+  if (m) return new Date(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!).getTime();
+  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})[ ,T]+(\d{1,2}):(\d{2})/.exec(s);
+  if (m) {
+    let day = +m[1]!;
+    let month = +m[2]!;
+    // A US-style sheet shows month first; a day can't be over 12, so swap when that's clearly the case.
+    if (month > 12 && day <= 12) [day, month] = [month, day];
+    const year = m[3]!.length === 2 ? 2000 + +m[3]! : +m[3]!;
+    return new Date(year, month - 1, day, +m[4]!, +m[5]!).getTime();
+  }
+  const t = Date.parse(s);
   return Number.isNaN(t) ? null : t;
-};
+}
 
 /** Appends one row, filling columns by their header names; other columns stay untouched. */
 async function appendByHeader(services: EngineServices, token: string | undefined, id: string, sheet: unknown, values: Record<string, string>) {
+  // RAW: written exactly as given, so times and phone numbers (+91…) aren't turned into dates or numbers.
   const header = await readHeader(services, token, id, sheet);
   const row: Array<string | null> = header.map((h) => {
     const k = Object.keys(values).find((x) => x.toLowerCase() === h.trim().toLowerCase());
@@ -1009,7 +1026,7 @@ async function appendByHeader(services: EngineServices, token: string | undefine
   if (!row.some((v) => v !== null)) throw new StepError(`The "${String(sheet)}" tab needs the columns ${Object.keys(values).join(", ")}`);
   const res = await callJson(services, {
     method: "POST",
-    url: sheetsUrl(id, sheetRange(sheet, "A1"), ":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"),
+    url: sheetsUrl(id, sheetRange(sheet, "A1"), ":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS"),
     headers: { authorization: `Bearer ${token}` },
     body: { values: [row] },
   });
@@ -1097,7 +1114,7 @@ async function setCells(services: EngineServices, token: string | undefined, id:
     method: "POST",
     url: `https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchUpdate`,
     headers: { authorization: `Bearer ${token}` },
-    body: { valueInputOption: "USER_ENTERED", data: cells.map(([c, v]) => ({ range: sheetRange(sheet, `${columnLetter(c)}${row}`), values: [[v]] })) },
+    body: { valueInputOption: "RAW", data: cells.map(([c, v]) => ({ range: sheetRange(sheet, `${columnLetter(c)}${row}`), values: [[v]] })) },
   });
   if (res.status >= 400) throw googleError(res, "Google Sheets");
 }

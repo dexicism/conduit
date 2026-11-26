@@ -17,6 +17,8 @@ function toParamBlocks(blocks: LlmBlock[]): Anthropic.Beta.BetaContentBlockParam
       case "image":
         if (b.mimetype === "application/pdf") return { type: "document", source: { type: "base64", media_type: "application/pdf", data: b.base64 } };
         if (!b.mimetype.startsWith("image/")) return { type: "text", text: `[A ${b.mimetype} file was attached, which can't be read here.]` };
+        // Claude takes pictures up to 5 MB (and PDFs up to 32 MB); bigger ones would fail the whole request.
+        if (b.base64.length * 0.75 > 5 * 1024 * 1024) return { type: "text", text: "[A picture was attached, but it's over 5 MB, too big to read. Ask for a smaller photo or a screenshot.]" };
         return { type: "image", source: { type: "base64", media_type: b.mimetype as "image/jpeg", data: b.base64 } };
       case "opaque":
         // Thinking / fallback blocks go back exactly as the API returned them.
@@ -89,6 +91,8 @@ export function createAnthropicLlm(opts: { apiKey?: string; model?: string; clie
             // Cached input still counts as input (it's just cheaper).
             inputTokens: res.usage.input_tokens + (res.usage.cache_read_input_tokens ?? 0) + (res.usage.cache_creation_input_tokens ?? 0),
             outputTokens: res.usage.output_tokens,
+            cacheReadTokens: res.usage.cache_read_input_tokens ?? 0,
+            cacheWriteTokens: res.usage.cache_creation_input_tokens ?? 0,
           },
         };
       } catch (err) {

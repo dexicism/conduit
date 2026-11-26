@@ -70,7 +70,8 @@ export interface LlmResult {
   content: LlmBlock[];
   stopReason: "end_turn" | "tool_use" | "max_tokens" | "refusal" | "pause_turn" | "other";
   model: string;
-  usage: { inputTokens: number; outputTokens: number };
+  /** inputTokens includes cached input; cacheReadTokens / cacheWriteTokens say how much of it (cheaper). */
+  usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number };
 }
 
 export interface LlmService {
@@ -131,6 +132,8 @@ export interface IntegrationServices {
     schedule(credentialId: string, msg: { to: string; text: string; dueAt: Date; createdBy?: string | null }): Promise<{ id: string; to: string; dueAt: string }>;
     reminders(credentialId: string, filter: { to?: string | null }): Promise<Array<{ id: string; to: string; text: string; dueAt: string; createdBy: string | null }>>;
     cancelReminder(id: string): Promise<boolean>;
+    /** Is the number connected right now, and since when. */
+    status(credentialId: string): Promise<{ status: string; phone: string | null; error: string | null; since: string | null; workerRunning: boolean }>;
     broadcast(credentialId: string, msg: { numbers: string[]; text: string; spacingMs?: [number, number] }): Promise<{ queued: number; recipients: string[]; invalid: string[]; lastAt: string }>;
   };
 }

@@ -236,6 +236,40 @@ const getMedia: Action = async (p, services) => {
 };
 
 /** The groups the linked number is in, one item each. Handy for finding a group's chat id. */
+const STATUS_TEXT: Record<string, string> = {
+  open: "connected",
+  starting: "starting up",
+  reconnecting: "trying to reconnect",
+  qr: "waiting for the QR code to be scanned",
+  logged_out: "logged out (link the phone again under Connected apps)",
+  idle: "not linked",
+};
+
+/** Is the number connected? `alert` is true once it's been down for a while, with a key that changes per outage. */
+const status: Action = async (p, services) => {
+  const id = credentialId(p);
+  const s = await wa(services).status(id);
+  const now = services.now().getTime();
+  const sinceMs = s.since ? Date.parse(s.since) : now;
+  const ok = s.status === "open" && s.workerRunning;
+  const downMinutes = ok ? 0 : Math.max(0, Math.round((now - sinceMs) / 60_000));
+  const waitMin = Math.max(0, Number(p.alertAfterMinutes ?? 10) || 0);
+  const what = !s.workerRunning ? "not running (is Conduit's worker up?)" : (STATUS_TEXT[s.status] ?? s.status);
+  return {
+    ok,
+    status: s.status,
+    workerRunning: s.workerRunning,
+    phone: s.phone,
+    error: s.error,
+    since: s.since,
+    downMinutes,
+    alert: !ok && downMinutes >= waitMin,
+    /** Same for the whole outage, so "only new" sends one alert per outage. */
+    outageKey: ok ? null : `${s.status}|${s.since ?? ""}`,
+    text: ok ? `WhatsApp ${s.phone ? `+${s.phone} ` : ""}is connected.` : `WhatsApp ${s.phone ? `+${s.phone} ` : ""}is ${what}${downMinutes ? ` for ${downMinutes} min` : ""}.${s.error ? ` (${s.error})` : ""}`,
+  };
+};
+
 const groups: Action = async (p, services) => {
   const list = await wa(services).groups(credentialId(p));
   const filter = toText(p.nameContains).trim().toLowerCase();
@@ -246,6 +280,7 @@ export const WHATSAPP_WEB_ACTIONS: Record<string, Action> = {
   "app.whatsappWeb.send": send,
   "app.whatsappWeb.getMedia": getMedia,
   "app.whatsappWeb.groups": groups,
+  "app.whatsappWeb.status": status,
   "app.whatsappWeb.schedule": schedule,
   "app.whatsappWeb.reminders": reminders,
   "app.whatsappWeb.broadcast": broadcast,

@@ -144,6 +144,19 @@ export const whatsappWebGroups: NodeDefinition = {
   outputSample: { chatId: "120363042712345678@g.us", name: "Sales team", members: 8 },
 };
 
+export const whatsappWebStatus: NodeDefinition = {
+  ...action,
+  type: "app.whatsappWeb.status",
+  name: "WhatsApp (linked phone): connection status",
+  description:
+    "Checks that the number is connected. Put it after a schedule to get an email or a Telegram/ntfy message when WhatsApp has been logged out or offline for a while: alert turns true after the wait, and outageKey stays the same for one outage (pair it with Only new items to be told once).",
+  icon: "Smartphone",
+  app: "whatsappWeb",
+  keywords: ["whatsapp", "status", "connected", "offline", "logged out", "health", "monitor", "alert"],
+  fields: [credential, { kind: "number", name: "alertAfterMinutes", label: "Alert after (minutes down)", default: 10, min: 0, max: 1440 }],
+  outputSample: { ok: false, status: "logged_out", workerRunning: true, phone: "919876543210", error: "Logged out on the phone. Link it again.", since: "2026-11-27T02:10:00.000Z", downMinutes: 25, alert: true, outageKey: "logged_out|2026-11-27T02:10:00.000Z", text: "WhatsApp +919876543210 is logged out (link the phone again under Connected apps) for 25 min." },
+};
+
 export const whatsappWebSchedule: NodeDefinition = {
   ...action,
   type: "app.whatsappWeb.schedule",
@@ -248,4 +261,5 @@ export const WHATSAPP_WEB_ACTION_DEFINITIONS: NodeDefinition[] = [
   whatsappWebBroadcast,
   whatsappWebGetMedia,
   whatsappWebGroups,
+  whatsappWebStatus,
 ];

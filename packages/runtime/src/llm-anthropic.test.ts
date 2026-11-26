@@ -43,7 +43,7 @@ describe("Claude", () => {
     expect(f.sent[0]!.cache_control).toEqual({ type: "ephemeral" });
     expect(f.sent[0]!.output_config).toEqual({ effort: "low" });
     // Cached input still counts as input.
-    expect(r.usage).toEqual({ inputTokens: 910, outputTokens: 5 });
+    expect(r.usage).toEqual({ inputTokens: 910, outputTokens: 5, cacheReadTokens: 900, cacheWriteTokens: 0 });
     // Without a forced model, the step's model is used.
     const g = fakeClient();
     await createAnthropicLlm({ client: g.client }).chat(ask({ model: "claude-sonnet-5-5" }));

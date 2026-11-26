@@ -401,6 +401,7 @@ describe("reminders and sending to many", () => {
       sockets[0]!.emit("connection.update", { connection: "open" });
       await until(async () => (await whatsappWebStatus(db, ws, cred)).status === "open");
       const services = integ.servicesFor(ws, new Set()).whatsappWeb!;
+      expect(await services.status(cred)).toMatchObject({ status: "open", workerRunning: true, phone: "919900011122", since: expect.any(String) });
 
       const soon = await services.schedule(cred, { to: "+91 99000 11122", text: "GST is due today", dueAt: new Date(Date.now() - 1000), createdBy: "Shadab" });
       const later = await services.schedule(cred, { to: "+91 99000 11122", text: "Call Mehta", dueAt: new Date(Date.now() + 3_600_000) });

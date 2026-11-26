@@ -1,6 +1,7 @@
 import { workflowGraphSchema, type WorkflowGraph } from "@conduit/core";
 import { defaultParameters, getDefinition } from "@conduit/nodes";
 import { describe, expect, it, vi } from "vitest";
+import { fromLocalIso } from "./executors/apps";
 import { initialState, runExecution } from "./runner";
 import type { EngineServices, HttpRequest, Item, MemoryTurn } from "./types";
 
@@ -96,6 +97,12 @@ function setup() {
 }
 
 describe("follow-ups", () => {
+  it("reads reminder times back in our format and in the formats Google Sheets shows dates in", () => {
+    const want = new Date(2026, 10, 26, 15, 5).getTime();
+    for (const v of ["2026-11-26 15:05", "26/11/2026 15:05:00", "26-11-26 15:05", "11/26/2026 15:05", " 26.11.2026, 15:05 "]) expect(fromLocalIso(v)).toBe(want);
+    expect(fromLocalIso("soon")).toBeNull();
+  });
+
   it("asks once, reminds after the wait, gives up after the reminders, and marks answers", async () => {
     const { sheets, sent, store, step, later } = setup();
     const ask = { sheet: "Follow-ups", whatsapp: "wa", person: "Ravi", phonesFrom: "Team", about: "Mohan", question: "Is the quotation for Mohan ready?", waitMinutes: 60 };
@@ -107,6 +114,7 @@ describe("follow-ups", () => {
     expect((await step("app.followups.ask", ask))[0]).toMatchObject({ status: "already_waiting", id: "F1" });
     expect(sent).toHaveLength(1);
 
+    expect(sheets.http.mock.calls.filter(([r]) => r.method === "POST" && r.url.includes(":append")).every(([r]) => r.url.includes("valueInputOption=RAW"))).toBe(true);
     const remind = { sheet: "Follow-ups", whatsapp: "wa", maxReminders: 2, waitMinutes: 60 };
     expect(await step("app.followups.remind", remind)).toEqual([{ none: true }]); // not yet
     later(61);

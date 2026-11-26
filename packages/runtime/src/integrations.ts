@@ -412,6 +412,11 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
           return listWhatsappWebReminders(db, workspaceId, id, filter);
         },
         cancelReminder: (reminderId) => cancelWhatsappWebReminder(db, workspaceId, reminderId),
+        async status(id) {
+          await linkedNumber(id);
+          const s = await whatsappWebStatus(db, workspaceId, id);
+          return { status: s.status, phone: s.phone, error: s.error, since: s.since ?? null, workerRunning: s.workerRunning };
+        },
         async broadcast(id, msg) {
           const countryCode = await linkedNumber(id);
           return broadcastWhatsappWeb(db, workspaceId, id, { ...msg, countryCode });

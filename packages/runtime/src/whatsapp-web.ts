@@ -895,5 +895,7 @@ export async function whatsappWebStatus(db: Db, workspaceId: ObjectId, credentia
     error: s.error,
     groups: (s.groups ?? []).slice(0, 200),
     workerRunning: Boolean(s.lockedUntil && s.lockedUntil > new Date()),
+    /** When the status last changed. */
+    since: s.updatedAt ? s.updatedAt.toISOString() : null,
   };
 }

@@ -16,6 +16,16 @@ export interface HomeOverview {
   runs: RunOverview;
   workflows: { total: number; live: number };
   connections: number;
+  /** AI use over the last 7 days (estimated cost in US$; null when a model's price isn't known). */
+  ai: {
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    cachedShare: number | null;
+    estCostUsd: number | null;
+    byModel: Array<{ model: string; requests: number; inputTokens: number; outputTokens: number; estCostUsd: number | null }>;
+    today: { requests: number; estCostUsd: number | null };
+  };
   nextScheduled: { workflowId: string; name: string; at: string } | null;
 }
 

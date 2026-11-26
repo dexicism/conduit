@@ -52,6 +52,21 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: Rea
   );
 }
 
+const tokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+const usd = (n: number | null) => (n === null ? "price unknown" : n === 0 ? "free" : n < 0.01 ? "under $0.01" : `about $${n.toFixed(2)}`);
+
+/** One line on what the AI costs: requests, tokens, how much came from the cache, and an estimate. */
+function AiUse({ ai }: { ai: HomeOverview["ai"] }) {
+  const main = ai.byModel[0];
+  return (
+    <p className="mt-3 rounded-xl border bg-card px-4 py-3 text-sm text-muted-foreground" aria-label="AI use">
+      <span className="font-medium text-foreground">AI, last 7 days:</span> {ai.requests.toLocaleString()} requests, {tokens(ai.inputTokens)} tokens read
+      {ai.cachedShare !== null && ai.cachedShare > 0.05 ? ` (${Math.round(ai.cachedShare * 100)}% from cache)` : ""}, {tokens(ai.outputTokens)} written. Cost: {usd(ai.estCostUsd)}
+      {ai.today.requests ? `, today ${usd(ai.today.estCostUsd)}` : ""}.{main ? ` Mostly ${main.model}.` : ""}
+    </p>
+  );
+}
+
 function Overview({ data }: { data: HomeOverview }) {
   const { runs } = data;
   const empty = data.workflows.total === 0;
@@ -71,6 +86,7 @@ function Overview({ data }: { data: HomeOverview }) {
           hint={`${data.connections} connected ${data.connections === 1 ? "account" : "accounts"}`}
         />
       </div>
+      {data.ai?.requests ? <AiUse ai={data.ai} /> : null}
 
       {empty ? (
         <div className="mt-6 rounded-xl border border-dashed p-6 text-center">
