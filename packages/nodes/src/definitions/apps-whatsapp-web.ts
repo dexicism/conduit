@@ -37,6 +37,13 @@ export const whatsappWebTrigger: NodeDefinition = {
       ],
     },
     {
+      kind: "boolean",
+      name: "selfChat",
+      label: "Also answer my \"Message yourself\" chat",
+      default: false,
+      description: "Lets the person who owns this number talk to the workflow from their own phone, in WhatsApp's \"Message yourself\" chat.",
+    },
+    {
       kind: "select",
       name: "groupMode",
       label: "In groups",

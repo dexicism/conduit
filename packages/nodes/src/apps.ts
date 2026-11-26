@@ -61,7 +61,19 @@ export const APP_DEFINITIONS: readonly AppDefinition[] = [
     description: "Use a normal WhatsApp number, linked like WhatsApp Web. Works in groups, no templates needed.",
     icon: "Smartphone",
     help: "Give it a name, then press Link phone and scan the QR code with WhatsApp on that phone (Settings > Linked devices). This isn't Meta's official business API: WhatsApp can ban numbers it thinks are bots, so use a number you can afford to lose, keep the volume human, and don't message lots of strangers first.",
-    auth: { kind: "fields", fields: [] },
+    auth: {
+      kind: "fields",
+      fields: [
+        {
+          name: "countryCode",
+          label: "Country code",
+          kind: "string",
+          default: "91",
+          placeholder: "91",
+          description: "Added in front of numbers written without one, like 9812345678 in a sheet. 91 is India.",
+        },
+      ],
+    },
   },
   {
     id: "whatsapp",

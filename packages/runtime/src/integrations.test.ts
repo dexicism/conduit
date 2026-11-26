@@ -1331,5 +1331,58 @@ describe("due tasks", () => {
     tasks.splice(1);
     expect((await due({ which: "due", output: "each" })).output("due")).toEqual([{ none: true, today: day(0) }]);
     expect((await due({ which: "due", output: "summary" })).output("due")![0]).toMatchObject({ count: 0, text: "Nothing due. All clear." });
+
+    // A leads list: no Task column, dates like 05-12-26, Won/Lost are finished, and staff phones come from the Team tab.
+    const dmy2 = (offset: number) => {
+      const [y, m, dd] = day(offset).split("-");
+      return `${dd}-${m}-${y!.slice(2)}`;
+    };
+    fake.state.sheets[FAKE.spreadsheetId]!.Enquiries = [
+      ["9", "Owner Name", "Phone No.", "Enquiry Type", "Assigned To", "Status", "Next Follow-up", "Follow-up Due", "Notes"],
+      ["1", "Mohan", "9800000101", "AIS", "Ravi", "Line busy", dmy2(-2), "Overdue by 2 days", "will meet on saturday"],
+      ["2", "Kiran", "9800000102", "AIS", "Asha", "Lost", dmy2(-5), "Closed", ""],
+      ["3", "Vikas", "9800000103", "Kent", "Nobody", "Quotation Sent", dmy2(0), "Due today", ""],
+      ["4", "Anil", "9800000104", "AIS", "Asha", "Contacted", "", "No date set", ""],
+    ];
+    const leads = (await due({ sheet: "Enquiries", which: "due", output: "each", phonesFrom: "Team" })).output("due")!;
+    expect(leads.map((t) => [t.what, t.overdueDays, t.assignedTo, t.phone])).toEqual([
+      ["Mohan", 2, "Ravi", "098123 45678"],
+      ["Vikas", 0, "Nobody", null],
+    ]);
+    expect(leads[0]).toMatchObject({ customerPhone: "9800000101", notes: "will meet on saturday", status: "Line busy" });
+    // "Lost" counts as open once it's not in the finished list.
+    expect((await due({ sheet: "Enquiries", which: "due", output: "each", closedStatuses: "Won" })).output("due")!.map((t) => t.what)).toEqual(["Kiran", "Mohan", "Vikas"]);
+    // Columns can be named in the step.
+    expect((await due({ sheet: "Enquiries", which: "open", output: "each", nameColumn: "Enquiry Type" })).output("due")!.map((t) => t.what)).toEqual(["AIS", "Kent", "AIS"]);
+    expect((await due({ sheet: "Enquiries", output: "each", dueColumn: "Nope" })).done.error?.message).toMatch(/No column named "Nope"/);
+    // One message per person, with all their leads.
+    const people = (await due({ sheet: "Enquiries", which: "due", output: "person", phonesFrom: "Team" })).output("due")!;
+    expect(people.map((x) => [x.assignedTo, x.phone, x.count, x.text])).toEqual([
+      ["Ravi", "098123 45678", 1, "• Mohan, 9800000101: 2 days overdue, Line busy"],
+      ["Nobody", null, 1, "• Vikas, 9800000103: due today, Quotation Sent"],
+    ]);
+
+    // An AI-filled update that leaves a column empty doesn't wipe it.
+    const upd = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["u"] } },
+      {
+        id: "u",
+        type: "app.sheets.update",
+        parameters: {
+          credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries", findBy: "value", column: "Phone No.", value: "+91 98000 00101", match: "phone",
+          columns: [{ key: "Status", value: "Contacted" }, { key: "Notes", value: "" }], emptyValues: "keep", ifMissing: "fail", ifMany: "fail",
+        },
+      },
+    ]);
+    expect(upd.output("u")![0]).toMatchObject({ action: "updated", changed: { Status: { from: "Line busy", to: "Contacted" } }, Notes: "will meet on saturday" });
+    expect(fake.state.sheets[FAKE.spreadsheetId]!.Enquiries![1]![8]).toBe("will meet on saturday");
+    // A cell with two numbers is found by either of them.
+    fake.state.sheets[FAKE.spreadsheetId]!.Enquiries![4]![2] = "9800000105 | 9800000106";
+    const second = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["f"] } },
+      { id: "f", type: "app.sheets.find", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries", column: "Phone No.", value: "+91 98000 00106", match: "phone" } },
+    ]);
+    expect(second.output("f")!.map((r) => r["Owner Name"])).toEqual(["Anil"]);
+    delete fake.state.sheets[FAKE.spreadsheetId]!.Enquiries;
   });
 });

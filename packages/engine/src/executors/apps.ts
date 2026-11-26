@@ -241,7 +241,8 @@ const sheetsAppend: AppAction = async (p, services) => {
   const header = await readHeader(services, accessToken, id, p.sheet);
   const pairs = (Array.isArray(p.columns) ? (p.columns as KeyValuePair[]) : []).filter((c) => toText(c.key).trim());
   if (!pairs.length) throw new StepError("Add at least one column");
-  const row: string[] = header.map(() => "");
+  // Columns we don't fill stay untouched (null), so formulas in them keep working.
+  const row: Array<string | null> = header.map(() => null);
   const values: Json = {};
   for (const c of pairs) {
     const key = toText(c.key).trim();
@@ -315,9 +316,12 @@ const digits = (v: string) => v.replace(/\D/g, "");
 function cellMatches(cell: string, wanted: string, how: string): boolean {
   if (how === "contains") return norm(cell).includes(norm(wanted));
   if (how === "phone") {
-    const a = digits(cell);
     const b = digits(wanted);
-    return a.length >= 7 && b.length >= 7 && (a.endsWith(b) || b.endsWith(a));
+    // A cell can hold several numbers ("98000 00105 | 98000 00106"): any of them counts.
+    return b.length >= 7 && cell.split(/[|,;/]|\bor\b/i).some((part) => {
+      const a = digits(part);
+      return a.length >= 7 && (a.endsWith(b) || b.endsWith(a));
+    });
   }
   return norm(cell) === norm(wanted);
 }
@@ -356,7 +360,11 @@ const sheetsUpdate: AppAction = async (p, services) => {
   const { header, rows } = await readTable(services, accessToken, id, p.sheet);
   const pairs = (Array.isArray(p.columns) ? (p.columns as KeyValuePair[]) : []).filter((c) => toText(c.key).trim());
   if (!pairs.length) throw new StepError("Add at least one column to change");
-  const changes = pairs.map((c) => ({ col: columnIndex(header, toText(c.key)), value: toText(c.value) }));
+  const keepEmpty = p.emptyValues === "keep";
+  const changes = pairs
+    .map((c) => ({ col: columnIndex(header, toText(c.key)), value: toText(c.value) }))
+    // "Leave as it is": an empty value doesn't wipe the cell (handy for AI tools that only change some columns).
+    .filter((c) => !keepEmpty || c.value.trim() !== "");
 
   let rowNumber: number | null = null;
   if (p.findBy === "row") {
@@ -373,7 +381,7 @@ const sheetsUpdate: AppAction = async (p, services) => {
     rowNumber = matches[0]?.row ?? null;
     if (rowNumber === null) {
       if (p.ifMissing === "add") {
-        const row: string[] = header.map(() => "");
+        const row: Array<string | null> = header.map(() => null);
         row[col] = wanted;
         for (const c of changes) row[c.col] = c.value;
         const res = await callJson(services, {
@@ -385,7 +393,7 @@ const sheetsUpdate: AppAction = async (p, services) => {
         if (res.status >= 400) throw googleError(res, "Google Sheets");
         const updatedRange = toText((res.body as { updates?: { updatedRange?: string } }).updates?.updatedRange);
         const added = Number(/![A-Z]+(\d+)/.exec(updatedRange)?.[1] ?? NaN);
-        return { action: "added", ...rowObject(header, row, Number.isFinite(added) ? added : rows.length + 2) };
+        return { action: "added", ...rowObject(header, row.map((v) => v ?? ""), Number.isFinite(added) ? added : rows.length + 2) };
       }
       if (p.ifMissing === "skip") return { action: "not_found", row: null };
       throw new StepError(`No row where ${header[col]} is "${wanted}"`);
@@ -393,6 +401,7 @@ const sheetsUpdate: AppAction = async (p, services) => {
   }
 
   const before = rows[rowNumber - 2] ?? header.map(() => "");
+  if (!changes.length) return { action: "unchanged", changed: {}, ...rowObject(header, before, rowNumber) };
   const res = await callJson(services, {
     method: "POST",
     url: `https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchUpdate`,
@@ -413,7 +422,7 @@ const sheetsUpdate: AppAction = async (p, services) => {
 // Task log (a Tasks tab in a Google Sheet)
 // ---------------------------------------------------------------------------
 
-const DONE = new Set(["done", "closed", "complete", "completed", "cancelled", "canceled", "finished", "resolved"]);
+const DONE = new Set(["done", "closed", "complete", "completed", "cancelled", "canceled", "finished", "resolved", "won", "lost"]);
 
 /** Columns of a task log, matched loosely so a hand-made sheet works. */
 function taskColumns(header: string[]) {
@@ -421,11 +430,11 @@ function taskColumns(header: string[]) {
   return {
     id: find("id", "task id", "#"),
     task: find("task", "what", "description", "todo"),
-    customer: find("customer", "client", "about", "party", "company"),
+    customer: find("customer", "client", "about", "party", "company", "customer name", "client name", "owner name", "lead", "name"),
     assignee: find("assigned to", "assignee", "owner", "who", "employee"),
     phone: find("phone", "assignee phone", "number"),
     status: find("status", "state"),
-    due: find("due", "due date", "deadline", "by"),
+    due: find("due", "due date", "deadline", "by", "next follow-up", "next follow up", "next followup", "follow-up date", "followup date", "next followup date", "follow up date"),
     createdBy: find("created by", "assigned by", "from"),
     created: find("created", "created at", "date"),
   };
@@ -518,12 +527,51 @@ function todayIn(now: Date, tz: string): string {
 
 const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000);
 
+/** Column picked by name in the step, or the one found automatically. */
+function pickColumn(header: string[], name: unknown, auto: number): number {
+  const n = toText(name).trim();
+  return n ? columnIndex(header, n) : auto;
+}
+
+/** Name -> phone from a team tab (Name and Phone columns), for nudging people whose sheet has no phone column. */
+async function teamPhones(services: EngineServices, token: string | undefined, id: string, sheet: string): Promise<Map<string, string>> {
+  const { header, rows } = await readTable(services, token, id, sheet);
+  const find = (...names: string[]) => header.findIndex((h) => names.includes(h.trim().toLowerCase()));
+  const name = find("name", "person", "employee", "staff");
+  const phone = find("phone", "phone no.", "phone no", "phone number", "mobile", "mobile number", "whatsapp", "number");
+  if (name < 0 || phone < 0) throw new StepError(`The "${sheet}" tab needs Name and Phone columns. It has: ${header.filter(Boolean).join(", ")}`);
+  return new Map(rows.filter((r) => r[name]?.trim() && r[phone]?.trim()).map((r) => [norm(r[name]!), r[phone]!.trim()]));
+}
+
+const DEFAULT_CLOSED = "Done, Closed, Completed, Cancelled, Won, Lost";
+
 const tasksDue: AppAction = async (p, services) => {
   const { accessToken } = await account(p, "google", services);
   const id = spreadsheetIdOf(p.spreadsheetId);
   const { header, rows } = await readTable(services, accessToken, id, p.sheet);
-  const col = taskColumns(header);
-  if (col.task < 0 || col.status < 0) throw new StepError(`The task sheet needs at least Task and Status columns. It has: ${header.filter(Boolean).join(", ")}`);
+  const found = taskColumns(header);
+  const find = (...names: string[]) => header.findIndex((h) => names.includes(h.trim().toLowerCase()));
+  const col = {
+    ...found,
+    task: pickColumn(header, p.taskColumn, found.task),
+    customer: pickColumn(header, p.nameColumn, found.customer),
+    due: pickColumn(header, p.dueColumn, found.due),
+    assignee: pickColumn(header, p.assigneeColumn, found.assignee),
+    status: pickColumn(header, p.statusColumn, found.status),
+    customerPhone: find("phone no.", "phone no", "phone number", "mobile", "mobile number", "customer phone", "contact number", "contact"),
+    notes: find("notes", "note", "remarks", "remark", "comments", "comment"),
+  };
+  if ((col.task < 0 && col.customer < 0) || col.status < 0 || col.due < 0) {
+    throw new StepError(`Couldn't tell which columns hold the task (or name), status and due date. Pick them in the step. The sheet has: ${header.filter(Boolean).join(", ")}`);
+  }
+  const closed = new Set(
+    (toText(p.closedStatuses).trim() || DEFAULT_CLOSED)
+      .split(/[,\n]/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const teamTab = toText(p.phonesFrom).trim();
+  const phones = teamTab ? await teamPhones(services, accessToken, id, teamTab) : null;
   let tz = toText(p.timezone).trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: tz });
@@ -540,13 +588,20 @@ const tasksDue: AppAction = async (p, services) => {
     .map((r, i) => {
       const due = dueDay(cell(r, col.due));
       const overdueDays = due ? dayDiff(today, due) : null;
+      const assignedTo = cell(r, col.assignee) || null;
+      const task = cell(r, col.task);
+      const customer = cell(r, col.customer) || null;
       return {
         row: i + 2,
         id: cell(r, col.id) || null,
-        task: cell(r, col.task),
-        customer: cell(r, col.customer) || null,
-        assignedTo: cell(r, col.assignee) || null,
-        phone: cell(r, col.phone) || null,
+        task,
+        customer,
+        /** The task, or the name when the sheet has no task column (like a leads list). */
+        what: task || customer || "",
+        assignedTo,
+        phone: cell(r, col.phone) || (assignedTo && phones?.get(norm(assignedTo))) || null,
+        customerPhone: cell(r, col.customerPhone) || null,
+        notes: cell(r, col.notes) || null,
         status: cell(r, col.status),
         due: cell(r, col.due) || null,
         dueDate: due,
@@ -555,7 +610,7 @@ const tasksDue: AppAction = async (p, services) => {
         createdBy: cell(r, col.createdBy) || null,
       };
     })
-    .filter((t) => t.task && !DONE.has(t.status.toLowerCase()))
+    .filter((t) => t.what && !closed.has(t.status.toLowerCase()))
     .filter((t) => !who || norm(t.assignedTo ?? "") === who)
     .filter((t) => {
       if (which === "open") return true;
@@ -566,10 +621,31 @@ const tasksDue: AppAction = async (p, services) => {
     .sort((a, b) => (b.overdueDays ?? -9999) - (a.overdueDays ?? -9999));
 
   const when = (d: number | null) => (d === null ? "no due date" : d > 1 ? `${d} days overdue` : d === 1 ? "1 day overdue" : d === 0 ? "due today" : d === -1 ? "due tomorrow" : `due in ${-d} days`);
+  const line = (t: (typeof tasks)[number]) =>
+    `• ${t.task || t.customer}${t.task && t.customer ? ` (${t.customer})` : ""}${t.customerPhone ? `, ${t.customerPhone}` : ""}: ${when(t.overdueDays)}${t.status ? `, ${t.status}` : ""}${t.id ? ` [${t.id}]` : ""}`;
+  if (p.output === "person") {
+    const groups = new Map<string, typeof tasks>();
+    for (const t of tasks) {
+      const k = t.assignedTo ?? "Unassigned";
+      groups.set(k, [...(groups.get(k) ?? []), t]);
+    }
+    const max = Math.max(1, Math.floor(toNumber(p.maxPerPerson ?? 15, "Most per person")));
+    const people = [...groups].map(([name, list]) => ({
+      assignedTo: name,
+      phone: list.find((t) => t.phone)?.phone ?? null,
+      count: list.length,
+      overdue: list.filter((t) => (t.overdueDays ?? -1) > 0).length,
+      dueToday: list.filter((t) => t.overdueDays === 0).length,
+      today,
+      text: [...list.slice(0, max).map(line), ...(list.length > max ? [`…and ${list.length - max} more`] : [])].join("\n"),
+      tasks: list,
+    }));
+    return people.length ? people : { none: true, today };
+  }
   if (p.output === "summary") {
     const byPerson: Record<string, number> = {};
     for (const t of tasks) byPerson[t.assignedTo ?? "Unassigned"] = (byPerson[t.assignedTo ?? "Unassigned"] ?? 0) + 1;
-    const lines = tasks.map((t) => `• ${t.assignedTo ?? "Unassigned"}: ${t.task}${t.customer ? ` (${t.customer})` : ""}, ${when(t.overdueDays)}${t.id ? ` [${t.id}]` : ""}`);
+    const lines = tasks.map((t) => `• ${t.assignedTo ?? "Unassigned"}: ${t.task || t.customer}${t.task && t.customer ? ` (${t.customer})` : ""}, ${when(t.overdueDays)}${t.id ? ` [${t.id}]` : ""}`);
     return {
       today,
       count: tasks.length,

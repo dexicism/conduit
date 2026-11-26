@@ -374,9 +374,12 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
 
   /** Services for one execution. Every secret it opens is added to `secrets` so the runtime can redact it. */
   function servicesFor(workspaceId: ObjectId, secrets: Set<string>): IntegrationServices {
-    const linkedNumber = async (id: string) => {
+    /** Checks it's a WhatsApp number of this workspace and returns its country code for numbers written without one. */
+    const linkedNumber = async (id: string): Promise<string | null> => {
       const doc = await find(workspaceId, id);
       if (!doc || doc.app !== "whatsappWeb") throw new StepError("Choose a linked WhatsApp number");
+      const values = (await resolve(workspaceId, id, "whatsappWeb")).values;
+      return typeof values.countryCode === "string" ? values.countryCode : null;
     };
     return {
       apiUrl,
@@ -391,9 +394,8 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
       },
       whatsappWeb: {
         async send(id, msg) {
-          const doc = await find(workspaceId, id);
-          if (!doc || doc.app !== "whatsappWeb") throw new StepError("Choose a linked WhatsApp number");
-          return sendWhatsappWeb(db, workspaceId, id, msg);
+          const countryCode = await linkedNumber(id);
+          return sendWhatsappWeb(db, workspaceId, id, msg, { countryCode });
         },
         async groups(id) {
           const doc = await find(workspaceId, id);
@@ -402,8 +404,8 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
         },
         readMedia: (id) => readMediaFile(db, workspaceId, id),
         async schedule(id, msg) {
-          await linkedNumber(id);
-          return scheduleWhatsappWeb(db, workspaceId, id, msg);
+          const countryCode = await linkedNumber(id);
+          return scheduleWhatsappWeb(db, workspaceId, id, { ...msg, countryCode });
         },
         async reminders(id, filter) {
           await linkedNumber(id);
@@ -411,8 +413,8 @@ export function createIntegrations(db: Db, cfg: IntegrationsConfig) {
         },
         cancelReminder: (reminderId) => cancelWhatsappWebReminder(db, workspaceId, reminderId),
         async broadcast(id, msg) {
-          await linkedNumber(id);
-          return broadcastWhatsappWeb(db, workspaceId, id, msg);
+          const countryCode = await linkedNumber(id);
+          return broadcastWhatsappWeb(db, workspaceId, id, { ...msg, countryCode });
         },
       },
     };

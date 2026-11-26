@@ -315,11 +315,33 @@ export const tasksDue: NodeDefinition = {
       options: [
         { value: "each", label: "One item per task" },
         { value: "summary", label: "One summary (with a text you can send)" },
+        { value: "person", label: "One item per person (all their tasks in one message)" },
       ],
     },
     { kind: "string", name: "timezone", label: "Time zone", expression: false, placeholder: "The server's (e.g. Asia/Kolkata)" },
+    {
+      kind: "string",
+      name: "closedStatuses",
+      label: "Finished statuses",
+      default: "Done, Closed, Completed, Cancelled, Won, Lost",
+      expression: false,
+      description: "Rows with one of these statuses are left out. Separate them with commas.",
+    },
+    {
+      kind: "string",
+      name: "phonesFrom",
+      label: "Team tab for phone numbers",
+      expression: false,
+      placeholder: "Team",
+      description: "If your sheet has names in Assigned To but no phone numbers, give a tab with Name and Phone columns and each person's number is filled in from there.",
+    },
+    { kind: "string", name: "dueColumn", label: "Due date column", expression: false, placeholder: "Found automatically (Due, Next Follow-up…)" },
+    { kind: "string", name: "nameColumn", label: "Name column", expression: false, placeholder: "Found automatically (Customer, Owner Name…)" },
+    { kind: "string", name: "taskColumn", label: "Task column", expression: false, placeholder: "Found automatically (Task…); can be empty for a leads list" },
+    { kind: "string", name: "assigneeColumn", label: "Assigned to column", expression: false, placeholder: "Found automatically (Assigned To…)" },
+    { kind: "string", name: "statusColumn", label: "Status column", expression: false, placeholder: "Found automatically (Status)" },
   ],
-  outputSample: { row: 2, id: "T2", task: "Send quote", customer: "Mehta Traders", assignedTo: "Ravi", phone: "9812345678", status: "Open", due: "2026-11-28", dueDate: "2026-11-28", overdueDays: 2, createdBy: "Shadab", when: "2 days overdue" },
+  outputSample: { row: 2, id: "T2", what: "Send quote", task: "Send quote", customerPhone: null, notes: null, customer: "Mehta Traders", assignedTo: "Ravi", phone: "9812345678", status: "Open", due: "2026-11-28", dueDate: "2026-11-28", overdueDays: 2, createdBy: "Shadab", when: "2 days overdue" },
 };
 
 export const gmailSearch: NodeDefinition = {
@@ -443,6 +465,17 @@ export const sheetsUpdate: NodeDefinition = {
       keyPlaceholder: "Column header",
       valuePlaceholder: "New value",
       description: "Only these columns change.",
+    },
+    {
+      kind: "select",
+      name: "emptyValues",
+      label: "Empty values",
+      default: "clear",
+      options: [
+        { value: "clear", label: "Clear the cell" },
+        { value: "keep", label: "Leave the cell as it is" },
+      ],
+      description: "Use \"Leave as it is\" when an AI fills the columns, so a column it has nothing for isn't wiped.",
     },
     {
       kind: "select",

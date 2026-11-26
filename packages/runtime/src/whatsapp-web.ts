@@ -143,10 +143,27 @@ export function phoneOf(jid?: string | null, alt?: string | null): string | null
 }
 
 /** A phone number (any format) or a chat id, as a jid WhatsApp accepts. */
-export function toJid(to: string): string {
+/**
+ * A WhatsApp chat id from a phone number or chat id. Numbers written without a
+ * country code (like 9812345678 or 09812345678, as sheets often have them) get
+ * `countryCode` in front; without one they're refused rather than sent to the
+ * wrong person. A cell with several numbers ("98123 45678 | 98111 12222") uses
+ * the first.
+ */
+export function toJid(to: string, countryCode?: string | null): string {
   const t = to.trim();
   if (/@(g\.us|s\.whatsapp\.net|lid)$/.test(t)) return t;
-  const digits = t.replace(/[\s()+.-]/g, "");
+  const first = t.split(/\s*(?:[|,;/]|\bor\b)\s*/i).find((p) => p.trim()) ?? "";
+  if (/[^\d\s()+.-]/.test(first)) throw new Error(`"${to}" isn't a phone number (use international format, e.g. +919876543210) or a chat id`);
+  let digits = first.replace(/\D/g, "");
+  if (!first.trim().startsWith("+")) {
+    if (digits.startsWith("00")) digits = digits.slice(2);
+    else if (digits.startsWith("0") || (digits.length >= 6 && digits.length <= 10)) {
+      const cc = (countryCode ?? "").replace(/\D/g, "");
+      if (!cc) throw new Error(`"${to}" has no country code. Write it like +919876543210, or set "Country code" on this WhatsApp connection.`);
+      digits = cc + digits.replace(/^0+/, "");
+    }
+  }
   if (!/^\d{7,15}$/.test(digits)) throw new Error(`"${to}" isn't a phone number (use international format, e.g. +919876543210) or a chat id`);
   return `${digits}@s.whatsapp.net`;
 }
@@ -288,14 +305,14 @@ export async function sendWhatsappWeb(
   workspaceId: ObjectId,
   credentialId: string,
   input: WaSendInput,
-  opts: { timeoutMs?: number; pollMs?: number } = {},
+  opts: { timeoutMs?: number; pollMs?: number; countryCode?: string | null } = {},
 ): Promise<{ messageId: string; chatId: string }> {
   const c = whatsappWebCollections(db);
   const session = await c.sessions.findOne({ credentialId, workspaceId });
   if (!session || session.status === "logged_out" || session.status === "idle") {
     throw new Error("This WhatsApp number isn't linked. Open Connected apps and link the phone first.");
   }
-  const to = toJid(input.to);
+  const to = toJid(input.to, opts.countryCode);
   const file = input.file ? { data: new Binary(Buffer.from(input.file.base64, "base64")), mimetype: input.file.mimetype, fileName: input.file.fileName ?? null } : null;
   if (file && file.data.length() > MAX_MEDIA_BYTES) throw new Error("Files can be at most 10 MB");
   if (!input.text?.trim() && !file) throw new Error("Nothing to send: add text or a file");
@@ -330,8 +347,8 @@ export async function readMediaFile(db: Db, workspaceId: ObjectId, id: string): 
 }
 
 /** Saves a message to send at `dueAt`. The worker that holds the number sends it then (or as soon as it's back, if it was off). */
-export async function scheduleWhatsappWeb(db: Db, workspaceId: ObjectId, credentialId: string, input: { to: string; text: string; dueAt: Date; createdBy?: string | null }) {
-  const to = toJid(input.to);
+export async function scheduleWhatsappWeb(db: Db, workspaceId: ObjectId, credentialId: string, input: { to: string; text: string; dueAt: Date; createdBy?: string | null; countryCode?: string | null }) {
+  const to = toJid(input.to, input.countryCode);
   const text = input.text.trim();
   if (!text) throw new Error("The message is empty");
   const { insertedId } = await whatsappWebCollections(db).reminders.insertOne({
@@ -350,7 +367,11 @@ export async function scheduleWhatsappWeb(db: Db, workspaceId: ObjectId, credent
 
 export async function listWhatsappWebReminders(db: Db, workspaceId: ObjectId, credentialId: string, filter: { to?: string | null } = {}) {
   const q: Record<string, unknown> = { workspaceId, credentialId, status: "pending" };
-  if (filter.to?.trim()) q.to = toJid(filter.to);
+  if (filter.to?.trim()) {
+    // Match on the end of the number, so it works with or without the country code.
+    const d = filter.to.replace(/\D/g, "").replace(/^0+/, "");
+    q.to = d.length >= 6 ? { $regex: `${d}@s\\.whatsapp\\.net$` } : toJid(filter.to);
+  }
   const docs = await whatsappWebCollections(db).reminders.find(q).sort({ dueAt: 1 }).limit(100).toArray();
   return docs.map((d) => ({ id: d._id!.toHexString(), to: d.to, text: d.text, dueAt: d.dueAt.toISOString(), createdBy: d.createdBy }));
 }
@@ -369,7 +390,7 @@ export async function broadcastWhatsappWeb(
   db: Db,
   workspaceId: ObjectId,
   credentialId: string,
-  input: { numbers: string[]; text: string; spacingMs?: [number, number] },
+  input: { numbers: string[]; text: string; spacingMs?: [number, number]; countryCode?: string | null },
 ) {
   const c = whatsappWebCollections(db);
   const text = input.text.trim();
@@ -381,7 +402,7 @@ export async function broadcastWhatsappWeb(
   for (const n of input.numbers) {
     if (!n.trim()) continue;
     try {
-      const jid = toJid(n);
+      const jid = toJid(n, input.countryCode);
       if (!seen.has(jid)) {
         seen.add(jid);
         valid.push(jid);
@@ -445,6 +466,8 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
     groupNames: Map<string, string>;
     sending: boolean;
     listeners: Array<[string, (...a: any[]) => void]>;
+    /** Message ids and self-chat texts this process sent, so its own replies in "Message yourself" aren't read as new messages. */
+    botSent: Map<string, number>;
   }
   const local = new Map<string, Local>();
   let stopped = false;
@@ -556,9 +579,18 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
   async function onMessage(l: Local, sock: WaSocket, m: WaMessage) {
     const key = m.key ?? {};
     const chatId = key.remoteJid ?? "";
-    if (key.fromMe || !key.id || !chatId || chatId === "status@broadcast" || chatId.endsWith("@newsletter") || chatId.endsWith("@broadcast")) return;
+    if (!key.id || !chatId || chatId === "status@broadcast" || chatId.endsWith("@newsletter") || chatId.endsWith("@broadcast")) return;
+    const mine = [userPart(sock.user?.id), userPart(sock.user?.lid)].filter(Boolean);
+    // The only message of our own we read: what the owner types in their "Message yourself" chat.
+    const selfChat = Boolean(key.fromMe) && !chatId.endsWith("@g.us") && mine.includes(userPart(chatId));
+    if (key.fromMe && !selfChat) return;
     const content = unwrapMessage(m.message);
     if (!Object.keys(content).length || content.protocolMessage || (content.senderKeyDistributionMessage && Object.keys(content).length === 1)) return;
+    if (selfChat) {
+      const now = Date.now();
+      for (const [k, at] of l.botSent) if (now - at > 10 * 60_000) l.botSent.delete(k);
+      if (l.botSent.has(key.id) || l.botSent.has(`t:${messageText(content) ?? ""}`)) return;
+    }
 
     const t = await store.triggers.findOne({ kind: "whatsappWeb", credentialId: l.credentialId });
     if (!t?.versionId) return;
@@ -574,12 +606,12 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
     const isGroup = chatId.endsWith("@g.us");
     const chats = String(p.chats ?? "all");
     if ((chats === "private" && isGroup) || (chats === "groups" && !isGroup)) return;
+    if (selfChat && !p.selfChat) return;
     const ctx = contextInfo(content);
-    const mine = [userPart(sock.user?.id), userPart(sock.user?.lid)].filter(Boolean);
     const mentionsMe = ((ctx?.mentionedJid ?? []) as string[]).some((j) => mine.includes(userPart(j))) || mine.includes(userPart(ctx?.participant));
     if (isGroup && p.groupMode === "mentioned" && !mentionsMe) return;
 
-    const from = isGroup ? phoneOf(key.participant, key.participantAlt) : phoneOf(key.remoteJid, key.remoteJidAlt);
+    const from = selfChat ? (phoneOf(sock.user?.id) ?? userPart(sock.user?.id)) : isGroup ? phoneOf(key.participant, key.participantAlt) : phoneOf(key.remoteJid, key.remoteJidAlt);
     const allowed = String(p.allowedNumbers ?? "")
       .split(/[\s,;]+/)
       .map((n) => n.replace(/\D/g, ""))
@@ -703,7 +735,10 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
             await new Promise((r) => setTimeout(r, Math.min(maxDelay, minDelay + Math.random() * (maxDelay - minDelay) + len * 5)));
             await sock.sendPresenceUpdate?.("paused", job.to).catch(() => {});
           }
+          const ownChat = [userPart(sock.user?.id), userPart(sock.user?.lid)].filter(Boolean).includes(userPart(job.to));
+          if (ownChat) l.botSent.set(`t:${job.text ?? ""}`, Date.now());
           const sent = await sock.sendMessage(job.to, content);
+          if (sent?.key?.id) l.botSent.set(sent.key.id, Date.now());
           await c.outbox.updateOne({ _id: job._id }, { $set: { status: "sent", result: { messageId: sent?.key?.id ?? "", chatId: job.to }, file: null } });
         } catch (e) {
           await c.outbox.updateOne({ _id: job._id }, { $set: { status: "failed", error: (e as Error).message, file: null } });
@@ -750,7 +785,7 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
         const hasLogin = await access(join(authDir(id), "creds.json")).then(() => true, () => false);
         const linkRequested = lease.linkRequestedAt && now.getTime() - lease.linkRequestedAt.getTime() < LINK_WINDOW_MS;
         if (!hasLogin && !linkRequested) continue;
-        l = { credentialId: id, workspaceId: cred.workspaceId, sock: null, open: false, stopping: false, retries: 0, qrSince: null, groupNames: new Map(), sending: false, listeners: [] };
+        l = { credentialId: id, workspaceId: cred.workspaceId, sock: null, open: false, stopping: false, retries: 0, qrSince: null, groupNames: new Map(), sending: false, listeners: [], botSent: new Map() };
         local.set(id, l);
         void open(l);
       }

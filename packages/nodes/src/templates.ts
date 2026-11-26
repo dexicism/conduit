@@ -351,7 +351,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
     setup: "Paste your sheet link into the second step, pick your Google account and linked number, and set your time zone in the first two steps.",
     steps: [
       { id: "every", type: "trigger.schedule", label: "Every morning", parameters: { mode: "cron", cron: "0 10 * * 1-6" }, to: ["due"] },
-      { id: "due", type: "app.tasks.due", label: "Tasks due or overdue", parameters: { sheet: "Tasks", which: "due", daysAhead: 0, output: "each" }, to: ["hasPhone"] },
+      { id: "due", type: "app.tasks.due", label: "Tasks due or overdue", parameters: { sheet: "Tasks", which: "due", daysAhead: 0, output: "each", phonesFrom: "Team" }, to: ["hasPhone"] },
       {
         id: "hasPhone",
         type: "flow.filter",
@@ -365,7 +365,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
         label: "Ask for an update",
         parameters: {
           to: "${['$input']['phone']}",
-          text: "Hi ${['$input']['assignedTo']}, quick check on ${['$input']['id']}: \"${['$input']['task']}\" for ${['$input']['customer']}, ${['$input']['when']}. Reply here with an update (done, or a new date).",
+          text: "Hi ${['$input']['assignedTo']}, quick check on \"${['$input']['what']}\" (${['$input']['when']}). Reply here with an update (done, or a new date).",
         },
       },
     ],

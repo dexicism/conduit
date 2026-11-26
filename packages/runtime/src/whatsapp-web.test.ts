@@ -123,6 +123,15 @@ describe("message parsing helpers", () => {
     expect(toJid("+91 98123-45678")).toBe("919812345678@s.whatsapp.net");
     expect(toJid("120363000000000001@g.us")).toBe("120363000000000001@g.us");
     expect(() => toJid("hello")).toThrow(/isn't a phone number/);
+    // Numbers without a country code, as sheets often have them.
+    expect(toJid("9800000104", "91")).toBe("919800000104@s.whatsapp.net");
+    expect(toJid("09800000104", "+91")).toBe("919800000104@s.whatsapp.net");
+    expect(toJid("9800000105 | 9800000106", "91")).toBe("919800000105@s.whatsapp.net");
+    expect(toJid("+44 7700 900123", "91")).toBe("447700900123@s.whatsapp.net");
+    expect(toJid("0044 7700 900123", "91")).toBe("447700900123@s.whatsapp.net");
+    expect(toJid("919800000104", "91")).toBe("919800000104@s.whatsapp.net");
+    expect(() => toJid("9800000104")).toThrow(/no country code/);
+    expect(() => toJid("call 9800000104", "91")).toThrow(/isn't a phone number/);
     const inner = unwrapMessage({ ephemeralMessage: { message: { viewOnceMessageV2: { message: { imageMessage: { caption: "bill" } } } } } });
     expect(messageText(inner)).toBe("bill");
     expect(messageText({ locationMessage: { name: "Shop", address: "MG Road" } })).toBe("Shop, MG Road");
@@ -137,7 +146,7 @@ describe("WhatsApp on a linked phone", () => {
     const factory = async (dir: string) => {
       await writeFile(join(dir, "creds.json"), "{}");
       const s = new FakeSocket();
-      sockets.push(s);
+      if (dir.endsWith(cred)) sockets.push(s); // other tests' phones can be opened too: only count ours
       return s as unknown as WaSocket;
     };
     const wa = startWhatsappWeb(db, rt, { authRoot, socketFactory: factory, syncMs: 60_000, outboxMs: 20, typingDelayMs: [0, 0] });
@@ -268,7 +277,7 @@ describe("WhatsApp on a linked phone", () => {
       socketFactory: async (dir) => {
         await writeFile(join(dir, "creds.json"), "{}");
         const s = new FakeSocket();
-        sockets.push(s);
+        if (dir.endsWith(cred)) sockets.push(s); // other tests' phones can be opened too: only count ours
         return s as unknown as WaSocket;
       },
     });
@@ -308,10 +317,10 @@ describe("WhatsApp on a linked phone", () => {
   }, 120_000);
 });
 
-describe("reminders and sending to many", () => {
-  it("sends a reminder when it's due (not before), lists and cancels them, and spaces out a broadcast", async () => {
+describe("message yourself", () => {
+  it("answers the owner's own \"Message yourself\" chat when asked to, but not its own replies there", async () => {
     const ws = new ObjectId();
-    const cred = (await integ.create({ workspaceId: ws, userId, app: "whatsappWeb", label: "Office phone", values: {} }))._id.toHexString();
+    const cred = (await integ.create({ workspaceId: ws, userId, app: "whatsappWeb", label: "Own phone", values: { countryCode: "91" } }))._id.toHexString();
     const sockets: FakeSocket[] = [];
     const wa = startWhatsappWeb(db, rt, {
       authRoot,
@@ -321,7 +330,67 @@ describe("reminders and sending to many", () => {
       socketFactory: async (dir) => {
         await writeFile(join(dir, "creds.json"), "{}");
         const s = new FakeSocket();
-        sockets.push(s);
+        if (dir.endsWith(cred)) sockets.push(s); // other tests' phones can be opened too: only count ours
+        return s as unknown as WaSocket;
+      },
+    });
+    try {
+      await requestWhatsappWebLink(db, ws, cred);
+      await wa.tick();
+      await until(() => sockets.length === 1);
+      const sock = sockets[0]!;
+      sock.emit("connection.update", { connection: "open" });
+      await until(async () => (await whatsappWebStatus(db, ws, cred)).status === "open");
+
+      const wf = new ObjectId();
+      await db.collection("workflows").insertOne({
+        _id: wf,
+        workspaceId: ws,
+        name: "echo",
+        revision: 1,
+        draft: graph([
+          { id: "wa", type: "trigger.whatsappWeb", parameters: { credential: cred, selfChat: true }, to: ["reply"] },
+          { id: "reply", type: "app.whatsappWeb.send", parameters: { credential: cred, to: "${['wa']['chatId']}", text: "got: ${['wa']['text']}" } },
+        ]),
+        publishedVersionId: null,
+        archivedAt: null,
+      });
+      await createTriggerService(db, client).publish(ws, wf, userId);
+      const self = "919900011122@s.whatsapp.net";
+      // Something the owner sends to someone else is never read.
+      sock.emit("messages.upsert", { type: "notify", messages: [msg({ id: "S0", text: "hello friend", key: { remoteJid: "919812345678@s.whatsapp.net", remoteJidAlt: undefined, fromMe: true } })] });
+      sock.emit("messages.upsert", { type: "notify", messages: [msg({ id: "S1", text: "what's due today?", key: { remoteJid: self, remoteJidAlt: undefined, fromMe: true } })] });
+      await until(async () => (await rt.collections.executions.countDocuments({ workflowId: wf })) === 1);
+      const run1 = (await rt.collections.executions.findOne({ workflowId: wf }))!;
+      expect(run1.triggerItems?.[0]?.json).toMatchObject({ from: "919900011122", text: "what's due today?" });
+      await rt.processExecution(run1._id);
+      expect(sock.sent[0]).toEqual({ jid: self, content: { text: "got: what's due today?" } });
+      // The bot's own reply shows up in the same chat: it must not answer itself.
+      sock.emit("messages.upsert", { type: "notify", messages: [msg({ id: "SENT1", text: "got: what's due today?", key: { remoteJid: self, remoteJidAlt: undefined, fromMe: true } })] });
+      sock.emit("messages.upsert", { type: "notify", messages: [msg({ id: "OTHERID", message: { conversation: "got: what's due today?" }, key: { remoteJid: self, remoteJidAlt: undefined, fromMe: true } })] });
+      await new Promise((r) => setTimeout(r, 500));
+      expect(await rt.collections.executions.countDocuments({ workflowId: wf })).toBe(1);
+      expect(sock.sent.length).toBe(1);
+    } finally {
+      await wa.stop();
+    }
+  }, 120_000);
+});
+
+describe("reminders and sending to many", () => {
+  it("sends a reminder when it's due (not before), lists and cancels them, and spaces out a broadcast", async () => {
+    const ws = new ObjectId();
+    const cred = (await integ.create({ workspaceId: ws, userId, app: "whatsappWeb", label: "Office phone", values: { countryCode: "91" } }))._id.toHexString();
+    const sockets: FakeSocket[] = [];
+    const wa = startWhatsappWeb(db, rt, {
+      authRoot,
+      syncMs: 60_000,
+      outboxMs: 20,
+      typingDelayMs: [0, 0],
+      socketFactory: async (dir) => {
+        await writeFile(join(dir, "creds.json"), "{}");
+        const s = new FakeSocket();
+        if (dir.endsWith(cred)) sockets.push(s); // other tests' phones can be opened too: only count ours
         return s as unknown as WaSocket;
       },
     });
@@ -340,6 +409,10 @@ describe("reminders and sending to many", () => {
       expect((await services.reminders(cred, {})).map((r) => r.text)).toEqual(["GST is due today", "Call Mehta", "Ignore"]);
       expect(await services.cancelReminder(cancelMe.id)).toBe(true);
       expect(await services.cancelReminder(cancelMe.id)).toBe(false);
+      // The connection's country code goes in front of a 10-digit number.
+      const local = await services.schedule(cred, { to: "99000 11122", text: "x", dueAt: new Date(Date.now() + 9_000_000) });
+      expect(local.to).toBe("919900011122@s.whatsapp.net");
+      expect(await services.cancelReminder(local.id)).toBe(true);
       // Another workspace can't see or cancel them.
       expect(await integ.servicesFor(new ObjectId(), new Set()).whatsappWeb!.cancelReminder(later.id)).toBe(false);
 

@@ -544,7 +544,7 @@ export function startFakeApis(port = 0): Promise<FakeApis> {
         const rows = book[sheet];
         if (!rows) return send(res, 400, { error: { code: 400, message: `Unable to parse range: ${sheet}` } });
         if (m[3]) {
-          rows.push((b.values?.[0] ?? []).map(String));
+          rows.push((b.values?.[0] ?? []).map((v: unknown) => (v === null || v === undefined ? "" : String(v))));
           const n = rows.length;
           return send(res, 200, { updates: { updatedRange: `${sheet}!A${n}:${String.fromCharCode(64 + rows[0]!.length)}${n}`, updatedRows: 1 } });
         }
