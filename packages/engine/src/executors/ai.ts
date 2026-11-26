@@ -32,6 +32,8 @@ function modelOf(p: Record<string, unknown>): string {
 }
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+/** Voice notes and PDFs: Gemini reads them; other providers may not. */
+const OTHER_TYPES = ["audio/ogg", "audio/mpeg", "audio/mp3", "audio/mp4", "audio/aac", "audio/wav", "audio/x-wav", "audio/flac", "audio/webm", "application/pdf"];
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 /** The step's Image field as a picture for the model: a stored media ID, a data: URL, or raw base64. */
@@ -54,8 +56,12 @@ async function imageBlocks(ctx: ExecContext, p: Record<string, unknown>): Promis
     else if (v.startsWith("UklGR")) mimetype = "image/webp";
     if (!/^[A-Za-z0-9+/=\s]+$/.test(base64)) throw new StepError("Image: use a media ID, a data: URL or base64");
   }
-  if (!IMAGE_TYPES.includes(mimetype)) throw new StepError(`Image: ${mimetype} isn't a picture the model can read (use JPEG, PNG, WebP or GIF)`);
-  if (base64.length * 0.75 > MAX_IMAGE_BYTES) throw new StepError("Image: pictures can be at most 8 MB");
+  if (!IMAGE_TYPES.includes(mimetype) && !OTHER_TYPES.includes(mimetype)) {
+    // A sticker, video or file the model can't use: carry on with just the text.
+    ctx.log(`Skipped the attachment: ${mimetype} can't be read by the model`);
+    return [];
+  }
+  if (base64.length * 0.75 > MAX_IMAGE_BYTES) throw new StepError("Image: files can be at most 8 MB");
   return [{ type: "image", mimetype, base64: base64.replace(/\s/g, "") }];
 }
 

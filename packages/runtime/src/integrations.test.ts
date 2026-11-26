@@ -1399,6 +1399,27 @@ describe("due tasks", () => {
       { id: "f", type: "app.sheets.find", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries, Team", column: "any", value: "+91 98123 45678", match: "phone" } },
     ]);
     expect(byPhone.output("f")!.map((r) => [r.tab, r.Name])).toEqual([["Team", "Ravi"]]);
+    // Nothing in the chosen column: it looks in every column, then for close spellings.
+    const wide = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["f"] } },
+      { id: "f", type: "app.sheets.find", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries, Team", column: "Assigned To", value: "mohan", match: "contains", ifNothing: "widen" } },
+    ]);
+    expect(wide.output("f")!.map((r) => [r["Owner Name"], r.closeMatch])).toEqual([["Mohan", undefined]]);
+    const close = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["f"] } },
+      { id: "f", type: "app.sheets.find", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries, Team", column: "Owner Name", value: "Mohn", match: "contains", ifNothing: "widen" } },
+    ]);
+    expect(close.output("f")!.map((r) => [r["Owner Name"], r.closeMatch])).toEqual([["Mohan", true]]);
+    const glued = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["f"] } },
+      { id: "f", type: "app.sheets.find", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries, Team", column: "any", value: "Ki ran", match: "contains", ifNothing: "widen" } },
+    ]);
+    expect(glued.output("f")!.map((r) => r["Owner Name"])).toEqual(["Kiran"]);
+    const none = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["f"] } },
+      { id: "f", type: "app.sheets.find", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries, Team", column: "any", value: "zzzzqq", match: "contains", ifNothing: "widen" } },
+    ]);
+    expect(none.output("f")).toEqual([{ found: false, row: null }]);
     delete fake.state.sheets[FAKE.spreadsheetId]!.Enquiries;
   });
 });

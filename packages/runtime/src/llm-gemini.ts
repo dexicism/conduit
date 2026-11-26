@@ -199,9 +199,26 @@ export function createGeminiLlm(opts: GeminiOptions): LlmService {
           res = await send(m);
           data = (await res.json().catch(() => ({}))) as GeminiResponse;
         }
+        if (res.status === 429) {
+          const msg = data.error?.message ?? "";
+          const daily = /per ?day|PerDay|requests_per_day|RPD/i.test(msg);
+          // A per-minute limit says "retry in 12.3s": wait that long once, if it's short.
+          const wait = Number(/retry in ([\d.]+)s/i.exec(msg)?.[1] ?? NaN);
+          if (!daily && retryDelayMs >= 0 && Number.isFinite(wait) && wait <= 25) {
+            await new Promise((r) => setTimeout(r, retryDelayMs === 0 ? 0 : Math.ceil(wait * 1000) + 300));
+            res = await send(m);
+            data = (await res.json().catch(() => ({}))) as GeminiResponse;
+          }
+        }
         if (res.status === 429 || res.status >= 500) {
           lastBusy = data.error?.message ?? `status ${res.status}`;
-          if (res.status === 429) resting.set(m, Date.now() + QUOTA_COOLDOWN_MS);
+          if (res.status === 429) {
+            const daily = /per ?day|PerDay|requests_per_day|RPD/i.test(lastBusy);
+            // Google says how long: "retry in 38m3.7s". Rest that long (or 10 min / 1 min if it doesn't say).
+            const hint = /retry in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i.exec(lastBusy);
+            const hintMs = hint && (hint[1] || hint[2] || hint[3]) ? ((Number(hint[1] ?? 0) * 60 + Number(hint[2] ?? 0)) * 60 + Number(hint[3] ?? 0)) * 1000 : 0;
+            resting.set(m, Date.now() + (hintMs > 0 ? Math.min(hintMs, 24 * 3_600_000) : daily ? QUOTA_COOLDOWN_MS : 60_000));
+          }
           continue;
         }
         break;

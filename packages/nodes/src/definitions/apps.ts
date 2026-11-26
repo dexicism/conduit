@@ -435,6 +435,17 @@ export const sheetsFind: NodeDefinition = {
     },
     { kind: "string", name: "value", label: "Value", required: true, aiFill: true },
     matchField,
+    {
+      kind: "select",
+      name: "ifNothing",
+      label: "If nothing matches",
+      default: "none",
+      options: [
+        { value: "none", label: "Say nothing was found" },
+        { value: "widen", label: "Look in every column, then close spellings" },
+      ],
+      description: "Good for AI tools and names typed from memory: Rajes also finds Rajesh. Close matches have closeMatch = true.",
+    },
     { kind: "number", name: "limit", label: "Max rows", default: 50, min: 1, max: 500 },
   ],
   outputSample: { found: true, row: 7, Name: "Mehta Traders", Phone: "9812345678", Status: "Quoted" },

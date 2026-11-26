@@ -379,9 +379,55 @@ const sheetsFind: AppAction = async (p, services) => {
       if (hit) found.push({ found: true, ...(many ? { tab: String(tab) } : {}), ...rowObject(header, cells, i + 2) });
     }
   }
+  if (!found.length && p.ifNothing === "widen" && how !== "phone") {
+    // Nothing in that column: try every column, then spellings that are close (Rajesh / Rajes, Mohit / Mohith).
+    for (const pass of anyColumn ? ["close"] : ["words", "close"]) {
+      for (const tab of many ? tabs : [p.sheet]) {
+        const { header, rows } = await readTable(services, accessToken, id, tab);
+        for (let i = 0; i < rows.length && found.length < limit; i++) {
+          const cells = rows[i]!;
+          if (pass === "words" ? rowHasWords(cells, wanted) : rowHasCloseWords(cells, wanted)) {
+            found.push({ found: true, ...(pass === "close" ? { closeMatch: true } : {}), ...(many ? { tab: String(tab) } : {}), ...rowObject(header, cells, i + 2) });
+          }
+        }
+      }
+      if (found.length) break;
+    }
+  }
   // Always one item at least, so the workflow can branch on "found".
   return found.length ? found : { found: false, row: null };
 };
+
+/** How many single-letter edits turn a into b (stops early past `max`). */
+function editDistance(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+      best = Math.min(best, cur[j]!);
+    }
+    if (best > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length]!;
+}
+
+/** Every word (3+ letters) has a close spelling in the row: 1 letter off for short words, 2 for long ones. Spaces inside names don't matter. */
+function rowHasCloseWords(cells: string[], wanted: string): boolean {
+  const simple = (s: string) => norm(s).replace(/[^a-z0-9\u0900-\u097f ]/g, " ");
+  const words = simple(wanted).split(" ").filter((w) => w.length >= 3);
+  if (!words.length) return false;
+  const tokens = simple(cells.join(" ")).split(" ").filter(Boolean);
+  // Also pairs of neighbours glued together, so "ram lal" matches "ramlal".
+  const all = [...tokens, ...tokens.slice(1).map((t, i) => tokens[i]! + t)];
+  const close = (w: string) => all.some((t) => editDistance(w, t, w.length >= 7 ? 2 : 1) <= (w.length >= 7 ? 2 : 1));
+  // "ram lal" typed apart still finds "Ramlal".
+  const glued = simple(wanted).replace(/ /g, "");
+  return words.every(close) || (glued.length >= 5 && close(glued));
+}
 
 const sheetsUpdate: AppAction = async (p, services) => {
   const { accessToken } = await account(p, "google", services);

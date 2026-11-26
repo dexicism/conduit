@@ -106,6 +106,16 @@ describe("Gemini", () => {
     await expect(ask()).rejects.toThrow(/overloaded|out of free requests/);
   });
 
+  it("waits out a short per-minute limit on the same model", async () => {
+    const f = fakeFetch([
+      { status: 429, body: { error: { code: 429, message: "Quota exceeded for metric generate_content_free_tier_requests per minute. Please retry in 3.2s." } } },
+      { body: { candidates: [{ content: { parts: [{ text: "after the wait" }] }, finishReason: "STOP" }] } },
+    ]);
+    const llm = createGeminiLlm({ apiKey: "k", model: "gemini-2.5-flash", fallbackModels: ["gemini-2.5-flash-lite"], retryDelayMs: 0, fetch: f.fn });
+    const r = await llm.chat({ model: "m", messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }], maxTokens: 50 });
+    expect(r.content.find((b) => b.type === "text")).toEqual({ type: "text", text: "after the wait" });
+    expect(f.sent.map((x) => x.url.split("/models/")[1])).toEqual(["gemini-2.5-flash:generateContent", "gemini-2.5-flash:generateContent"]);
+  });
   it("converts history without Gemini's raw reply (e.g. from memory)", () => {
     expect(
       toGeminiContents([

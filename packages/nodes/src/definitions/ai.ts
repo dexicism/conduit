@@ -15,7 +15,7 @@ const image: ParamField = {
   name: "image",
   label: "Image",
   placeholder: "${['$input']['media']['id']}",
-  description: "Optional. A photo or screenshot for the model to read: a WhatsApp media ID, or base64 / a data: URL. Needs a model that can see images (Gemini and Claude can).",
+  description: "Optional. A photo or screenshot for the model to read: a WhatsApp media ID, or base64 / a data: URL. Needs a model that can see images (Gemini and Claude can). With Gemini, voice notes and PDFs work too; other files are skipped.",
 };
 const outputField: ParamField = { kind: "string", name: "outputField", label: "Save result as", default: "ai", required: true, expression: false };
 
