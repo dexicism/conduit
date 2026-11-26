@@ -155,6 +155,15 @@ export const scheduleTrigger: NodeDefinition = {
       showIf: { field: "mode", equals: ["cron"] },
     },
     {
+      kind: "number",
+      name: "skipIfLateMinutes",
+      label: "Skip a run that's this late (minutes)",
+      default: 0,
+      min: 0,
+      max: 10080,
+      description: "If the computer was off or asleep, a missed run starts as soon as it's back. Set e.g. 60 to skip runs more than an hour late instead (good for messages to people). 0 = never skip.",
+    },
+    {
       kind: "string",
       name: "timezone",
       label: "Time zone",

@@ -169,17 +169,24 @@ export function createGeminiLlm(opts: GeminiOptions): LlmService {
         };
       };
       const send = async (model: string) => {
-        try {
-          return await doFetch(`${base}/models/${encodeURIComponent(model)}:generateContent`, {
-            method: "POST",
-            headers: { "content-type": "application/json", "x-goog-api-key": opts.apiKey },
-            body: JSON.stringify(bodyFor(model)),
-            signal: AbortSignal.timeout(timeoutMs),
-          });
-        } catch (err) {
-          const e = err as Error;
-          if (e.name === "TimeoutError") throw new StepError(`Gemini took longer than ${Math.round(timeoutMs / 1000)} s to answer`);
-          throw new StepError("Can't reach Gemini. Check the internet connection.");
+        for (let attempt = 0; ; attempt++) {
+          try {
+            return await doFetch(`${base}/models/${encodeURIComponent(model)}:generateContent`, {
+              method: "POST",
+              headers: { "content-type": "application/json", "x-goog-api-key": opts.apiKey },
+              body: JSON.stringify(bodyFor(model)),
+              signal: AbortSignal.timeout(timeoutMs),
+            });
+          } catch (err) {
+            const e = err as Error;
+            if (e.name === "TimeoutError") throw new StepError(`Gemini took longer than ${Math.round(timeoutMs / 1000)} s to answer`);
+            // No connection (e.g. just after the laptop wakes up): wait a little and try again.
+            if (attempt < 2 && retryDelayMs > 0) {
+              await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 2)));
+              continue;
+            }
+            throw new StepError("Can't reach Gemini. Check the internet connection.");
+          }
         }
       };
 

@@ -387,6 +387,12 @@ export function createRuntime(
           continue;
         }
         await c.triggers.updateOne({ _id: t._id }, { $set: { nextRunAt: nextScheduleRun(node.parameters, now) } });
+        // Hours late (the computer was asleep)? Some workflows shouldn't run then, e.g. messages to people.
+        const skipAfter = Number(node.parameters.skipIfLateMinutes ?? 0) * 60_000;
+        if (skipAfter > 0 && t.nextRunAt && now.getTime() - t.nextRunAt.getTime() > skipAfter) {
+          console.info(`[runtime] skipped "${String(wf.name)}": it was due ${Math.round((now.getTime() - t.nextRunAt.getTime()) / 60_000)} min ago`);
+          continue;
+        }
         await createExecution(
           {
             workspaceId: t.workspaceId,

@@ -126,6 +126,32 @@ describe("network guard", () => {
     await expect(http({ method: "GET", url: `http://localhost:${port}/x`, headers: {}, timeoutMs: 2000 })).rejects.toThrow(/private network|ECONNREFUSED/);
   });
 
+  it("tries again when the server can't be reached yet (like just after the laptop wakes up)", async () => {
+    // Find a free port, then start listening on it only a moment after the first try.
+    const probe = createServer();
+    await new Promise<void>((r) => probe.listen(0, "127.0.0.1", r));
+    const port = (probe.address() as AddressInfo).port;
+    await new Promise<void>((r) => probe.close(() => r()));
+    const late = createServer((_req, res) => res.end("ok"));
+    setTimeout(() => late.listen(port, "127.0.0.1"), 400);
+    try {
+      const http = createHttpClient({ allowPrivateNetwork: true, retryDelaysMs: [300, 300, 300] });
+      const r = await http({ method: "POST", url: `http://127.0.0.1:${port}/`, headers: {}, body: "x", timeoutMs: 2000 });
+      expect(r.status).toBe(200);
+      // With no retries left it gives up with the real reason.
+      const none = createHttpClient({ allowPrivateNetwork: true, retryDelaysMs: [] });
+      const closed = createServer();
+      await new Promise<void>((r) => closed.listen(0, "127.0.0.1", r));
+      const closedPort = (closed.address() as AddressInfo).port;
+      await new Promise<void>((r) => closed.close(() => r()));
+      await expect(none({ method: "GET", url: `http://127.0.0.1:${closedPort}/`, headers: {}, timeoutMs: 2000 })).rejects.toThrow(/ECONNREFUSED/);
+    } finally {
+      // Wait until it's really closed, so it can't get in the way of the next test.
+      late.closeAllConnections();
+      await new Promise<void>((r) => (late.listening ? late.close(() => r()) : r()));
+    }
+  });
+
   it("follows redirects and parses JSON when allowed", async () => {
     const http = createHttpClient({ allowPrivateNetwork: true });
     const r = await http({ method: "GET", url: `${base}/redirect`, headers: {}, timeoutMs: 2000 });
@@ -303,6 +329,22 @@ describe("publishing and schedules", () => {
 
     await triggers.unpublish(ws, wf);
     expect(await triggers.findWebhook("unique-path-1", false)).toBeNull();
+
+    // A schedule that's hours late (the computer was asleep) is skipped when asked to, and booked again.
+    const lateWf = await insertWorkflow(ws, "Late", graph([
+      { id: "sched", type: "trigger.schedule", parameters: { mode: "interval", every: 1, unit: "hours", skipIfLateMinutes: 60 }, to: { main: ["s"] } },
+      setNode("s", "ok", "1"),
+    ]));
+    await triggers.publish(ws, lateWf, "u");
+    await rt.collections.triggers.updateOne({ workflowId: lateWf, kind: "schedule" }, { $set: { nextRunAt: new Date(Date.now() - 2 * 3_600_000) } });
+    await rt.tickSchedules();
+    expect(await rt.collections.executions.countDocuments({ workflowId: lateWf })).toBe(0);
+    expect((await rt.collections.triggers.findOne({ workflowId: lateWf, kind: "schedule" }))!.nextRunAt!.getTime()).toBeGreaterThan(Date.now());
+    // A little late is fine.
+    await rt.collections.triggers.updateOne({ workflowId: lateWf, kind: "schedule" }, { $set: { nextRunAt: new Date(Date.now() - 10 * 60_000) } });
+    await rt.tickSchedules();
+    expect(await rt.collections.executions.countDocuments({ workflowId: lateWf })).toBe(1);
+    await triggers.unpublish(ws, lateWf);
   });
 });
 

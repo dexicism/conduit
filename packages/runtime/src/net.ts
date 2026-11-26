@@ -89,8 +89,17 @@ async function readCapped(res: Awaited<ReturnType<typeof undiciFetch>>): Promise
   return Buffer.concat(chunks);
 }
 
-export function createHttpClient(opts: { allowPrivateNetwork: boolean }) {
+/**
+ * Errors where the request never reached the server (no internet yet after the
+ * laptop wakes up, a DNS hiccup): safe to send again, whatever the method.
+ */
+const NOT_SENT = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "ENETDOWN", "UND_ERR_CONNECT_TIMEOUT"]);
+/** Connection dropped mid-way: only safe to repeat for reads. */
+const DROPPED = new Set(["ECONNRESET", "EPIPE", "UND_ERR_SOCKET", "ETIMEDOUT"]);
+
+export function createHttpClient(opts: { allowPrivateNetwork: boolean; retryDelaysMs?: number[] }) {
   const dispatcher = guardedDispatcher(opts.allowPrivateNetwork);
+  const delays = opts.retryDelaysMs ?? [2000, 5000, 12000];
 
   return async function http(req: HttpRequest): Promise<HttpResponse> {
     let url = new URL(req.url);
@@ -105,19 +114,28 @@ export function createHttpClient(opts: { allowPrivateNetwork: boolean }) {
         throw new StepError(`Blocked request to a private network address (${host})`);
       }
       let res;
-      try {
-        res = await undiciFetch(url, {
-          method,
-          headers: reqHeaders,
-          body,
-          redirect: "manual",
-          dispatcher,
-          signal: AbortSignal.timeout(req.timeoutMs),
-        });
-      } catch (err) {
-        const e = err as Error & { cause?: Error };
-        if (e.name === "TimeoutError") throw new StepError(`Request timed out after ${req.timeoutMs / 1000}s`);
-        throw new StepError(e.cause?.message ?? e.message ?? "Request failed");
+      for (let attempt = 0; ; attempt++) {
+        try {
+          res = await undiciFetch(url, {
+            method,
+            headers: reqHeaders,
+            body,
+            redirect: "manual",
+            dispatcher,
+            signal: AbortSignal.timeout(req.timeoutMs),
+          });
+          break;
+        } catch (err) {
+          const e = err as Error & { cause?: Error & { code?: string } };
+          if (e.name === "TimeoutError") throw new StepError(`Request timed out after ${req.timeoutMs / 1000}s`);
+          const code = e.cause?.code ?? "";
+          const again = NOT_SENT.has(code) || (DROPPED.has(code) && (method === "GET" || method === "HEAD"));
+          if (again && attempt < delays.length) {
+            await new Promise((r) => setTimeout(r, delays[attempt]));
+            continue;
+          }
+          throw new StepError(e.cause?.message ?? e.message ?? "Request failed");
+        }
       }
       const location = res.headers.get("location");
       if (res.status >= 300 && res.status < 400 && location) {

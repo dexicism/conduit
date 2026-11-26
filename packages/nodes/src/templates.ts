@@ -350,7 +350,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
     apps: ["google", "whatsappWeb"],
     setup: "Paste your sheet link into the second step, pick your Google account and linked number, and set your time zone in the first two steps.",
     steps: [
-      { id: "every", type: "trigger.schedule", label: "Every morning", parameters: { mode: "cron", cron: "0 10 * * 1-6" }, to: ["due"] },
+      { id: "every", type: "trigger.schedule", label: "Every morning", parameters: { mode: "cron", cron: "0 10 * * 1-6", skipIfLateMinutes: 60 }, to: ["due"] },
       { id: "due", type: "app.tasks.due", label: "Tasks due or overdue", parameters: { sheet: "Tasks", which: "due", daysAhead: 0, output: "each", phonesFrom: "Team" }, to: ["hasPhone"] },
       {
         id: "hasPhone",
@@ -379,7 +379,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
     needsAi: true,
     setup: "Paste your sheet link into the second step, pick your Google account and linked number, add a variable OWNER_PHONE with the owner's number (Team & settings, Variables), and set your time zone.",
     steps: [
-      { id: "every", type: "trigger.schedule", label: "Every evening", parameters: { mode: "cron", cron: "0 19 * * *" }, to: ["open"] },
+      { id: "every", type: "trigger.schedule", label: "Every evening", parameters: { mode: "cron", cron: "0 19 * * *", skipIfLateMinutes: 120 }, to: ["open"] },
       { id: "open", type: "app.tasks.due", label: "All open tasks", parameters: { sheet: "Tasks", which: "open", output: "summary" }, to: ["supervisor"] },
       {
         id: "supervisor",
@@ -680,7 +680,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
     setup:
       "Your sheet needs a Leads tab (Name, Phone, Assigned To, Status, Next Follow-up, Notes), a Team tab (Name, Phone, Role, Access), a Follow-ups tab (ID, Asked At, Person, Phone, About, Question, Status, Reminders, Next Reminder, Answer) and, if you like, a Bot Rules tab (one rule per line). Paste the sheet link into each sheet step, pick your Google account and linked number, set your time zone, and add the variable OWNER_PHONE. Pair it with \"Follow-up reminders\".",
     steps: [
-      { id: "every", type: "trigger.schedule", label: "10:00, 14:00, 18:00", parameters: { mode: "cron", cron: "5 10,14,18 * * 1-6" }, to: ["rules"] },
+      { id: "every", type: "trigger.schedule", label: "10:00, 14:00, 18:00", parameters: { mode: "cron", cron: "5 10,14,18 * * 1-6", skipIfLateMinutes: 60 }, to: ["rules"] },
       { id: "rules", type: "app.sheets.text", label: "Bot Rules", parameters: { sheet: "Bot Rules", cacheMinutes: 10, ifMissing: "empty" }, to: ["due"] },
       { id: "due", type: "app.tasks.due", label: "Overdue and due today", parameters: { sheet: "Leads", which: "due", daysAhead: 0, output: "summary", closedStatuses: "Won, Lost, Closed, Done", phonesFrom: "Team" }, to: ["waiting"] },
       { id: "waiting", type: "app.sheets.text", label: "Follow-up questions", parameters: { sheet: "Follow-ups", cacheMinutes: 0, ifMissing: "empty" }, to: ["check"] },
@@ -727,7 +727,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
     apps: ["google", "whatsappWeb"],
     setup: "Paste your sheet link into the second step (it needs a Follow-ups tab; the \"Checker\" template fills it), pick your Google account and linked number, set your time zone, and add the variable OWNER_PHONE.",
     steps: [
-      { id: "every", type: "trigger.schedule", label: "Every hour 10:30-19:30", parameters: { mode: "cron", cron: "30 10-19 * * 1-6" }, to: ["remind"] },
+      { id: "every", type: "trigger.schedule", label: "Every hour 10:30-19:30", parameters: { mode: "cron", cron: "30 10-19 * * 1-6", skipIfLateMinutes: 30 }, to: ["remind"] },
       { id: "remind", type: "app.followups.remind", label: "Remind or give up", parameters: { sheet: "Follow-ups", maxReminders: 2, waitMinutes: 60, reminderPrefix: "Reminder:", label: "Follow-up reminder" }, to: ["gaveUp"] },
       {
         id: "gaveUp",
