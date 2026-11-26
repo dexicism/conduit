@@ -72,14 +72,38 @@ describe("Gemini", () => {
       { status: 404, body: { error: { code: 404, message: "models/x is not found" } } },
       { status: 400, body: { error: { code: 400, message: "API key not valid. Please pass a valid API key." } } },
     ]);
-    const llm = createGeminiLlm({ apiKey: "k", model: "x", fetch: f.fn });
+    const llm = createGeminiLlm({ apiKey: "k", model: "x", fallbackModels: [], fetch: f.fn });
     const schema = { type: "object", properties: { customer: { anyOf: [{ type: "string" }, { type: "null" }] } }, required: ["customer"], additionalProperties: false };
     const ask = () => llm.chat({ model: "m", messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }], jsonSchema: schema, maxTokens: 50 });
     expect((await ask()).content.find((b) => b.type === "text")).toEqual({ type: "text", text: '{"customer":"Mehta"}' });
     expect(f.sent[0]!.body.generationConfig).toEqual({ maxOutputTokens: 50, responseMimeType: "application/json", responseJsonSchema: schema });
-    await expect(ask()).rejects.toThrow(/too many requests/);
+    await expect(ask()).rejects.toThrow(/out of free requests/);
     await expect(ask()).rejects.toThrow(/doesn't have the model "x"/);
     await expect(ask()).rejects.toThrow(/rejected the API key/);
+  });
+
+  it("falls back to the next model when one is out of requests or overloaded, and skips a used-up one for a while", async () => {
+    const ok = (text: string) => ({ body: { candidates: [{ content: { parts: [{ text }] }, finishReason: "STOP" }] } });
+    const f = fakeFetch([
+      { status: 429, body: { error: { code: 429, message: "Quota exceeded for metric ... limit: 20" } } },
+      ok("from lite"),
+      ok("lite again"),
+      { status: 503, body: { error: { code: 503, message: "high demand" } } },
+      { status: 503, body: { error: { code: 503, message: "high demand" } } },
+      { status: 503, body: { error: { code: 503, message: "high demand" } } },
+      { status: 503, body: { error: { code: 503, message: "high demand" } } },
+    ]);
+    const llm = createGeminiLlm({ apiKey: "k", model: "gemini-2.5-flash", fallbackModels: ["gemini-2.5-flash-lite"], retryDelayMs: 0, fetch: f.fn });
+    const ask = () => llm.chat({ model: "m", effort: "low", messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }], maxTokens: 50 });
+    const first = await ask();
+    expect(first.content.find((b) => b.type === "text")).toEqual({ type: "text", text: "from lite" });
+    expect(f.sent.map((x) => x.url.split("/models/")[1])).toEqual(["gemini-2.5-flash:generateContent", "gemini-2.5-flash-lite:generateContent"]);
+    expect(f.sent[0]!.body.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
+    // The used-up model is skipped next time: straight to lite.
+    await ask();
+    expect(f.sent[2]!.url).toContain("gemini-2.5-flash-lite");
+    // Both overloaded (each retried once): a clear message.
+    await expect(ask()).rejects.toThrow(/overloaded|out of free requests/);
   });
 
   it("converts history without Gemini's raw reply (e.g. from memory)", () => {

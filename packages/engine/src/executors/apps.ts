@@ -316,10 +316,10 @@ const digits = (v: string) => v.replace(/\D/g, "");
 function cellMatches(cell: string, wanted: string, how: string): boolean {
   if (how === "contains") return norm(cell).includes(norm(wanted));
   if (how === "phone") {
-    const b = digits(wanted);
+    const b = digits(wanted).replace(/^0+/, "");
     // A cell can hold several numbers ("98000 00105 | 98000 00106"): any of them counts.
     return b.length >= 7 && cell.split(/[|,;/]|\bor\b/i).some((part) => {
-      const a = digits(part);
+      const a = digits(part).replace(/^0+/, "");
       return a.length >= 7 && (a.endsWith(b) || b.endsWith(a));
     });
   }
@@ -334,22 +334,51 @@ function rowObject(header: string[], cells: string[], rowNumber: number): Json {
   return out;
 }
 
+/** "any", "all", "*" or nothing: search every column. */
+const ANY_COLUMN = new Set(["", "any", "all", "*", "any column", "everything"]);
+
+/** Every word of `wanted` is somewhere in the row (any order), so "priya architect" finds a row with both words. */
+function rowHasWords(cells: string[], wanted: string): boolean {
+  const text = norm(cells.join(" \u0001 "));
+  const words = norm(wanted).split(" ").filter(Boolean);
+  return words.length > 0 && words.every((w) => text.includes(w));
+}
+
 const sheetsFind: AppAction = async (p, services) => {
   const { accessToken } = await account(p, "google", services);
   const id = spreadsheetIdOf(p.spreadsheetId);
-  const { header, rows } = await readTable(services, accessToken, id, p.sheet);
   const column = toText(p.column).trim();
-  if (!column) throw new StepError("Choose the column to search in");
-  const col = columnIndex(header, column);
+  const anyColumn = ANY_COLUMN.has(column.toLowerCase());
   const wanted = toText(p.value);
   if (!wanted.trim()) throw new StepError("The value to find is empty");
   const how = toText(p.match) || "equals";
   const limit = Math.min(500, Math.max(1, Math.floor(toNumber(p.limit ?? 50, "Max rows"))));
-  const found = rows
-    .map((cells, i) => ({ cells, row: i + 2 }))
-    .filter((r) => cellMatches(r.cells[col] ?? "", wanted, how))
-    .slice(0, limit)
-    .map((r) => ({ found: true, ...rowObject(header, r.cells, r.row) }));
+  // Several tabs at once: "Enquiries, Architect Data". Each row says which tab it's from.
+  const tabs = toText(p.sheet).split(",").map((t) => t.trim()).filter(Boolean);
+  const many = tabs.length > 1;
+  const found: Json[] = [];
+  for (const tab of many ? tabs : [p.sheet]) {
+    const { header, rows } = await readTable(services, accessToken, id, tab);
+    let col = -1;
+    if (!anyColumn) {
+      col = header.findIndex((h) => h.toLowerCase() === column.toLowerCase());
+      if (col < 0) {
+        if (many) continue; // this tab doesn't have that column
+        columnIndex(header, column); // throws the helpful "no column named" error
+      }
+    }
+    for (let i = 0; i < rows.length && found.length < limit; i++) {
+      const cells = rows[i]!;
+      const hit = anyColumn
+        ? how === "phone"
+          ? cells.some((c) => cellMatches(c, wanted, "phone"))
+          : how === "contains"
+            ? rowHasWords(cells, wanted)
+            : cells.some((c) => cellMatches(c, wanted, how))
+        : cellMatches(cells[col] ?? "", wanted, how);
+      if (hit) found.push({ found: true, ...(many ? { tab: String(tab) } : {}), ...rowObject(header, cells, i + 2) });
+    }
+  }
   // Always one item at least, so the workflow can branch on "found".
   return found.length ? found : { found: false, row: null };
 };

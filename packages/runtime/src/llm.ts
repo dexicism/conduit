@@ -36,7 +36,10 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): { provider: Ll
     const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
     if (!apiKey) throw new Error("AI_PROVIDER=gemini needs GEMINI_API_KEY (get one free at aistudio.google.com)");
     const timeout = Number(env.GEMINI_TIMEOUT_MS);
-    return { provider: "gemini", llm: createGeminiLlm({ apiKey, model: env.GEMINI_MODEL, ...(timeout > 0 ? { timeoutMs: timeout } : {}) }) };
+    // GEMINI_FALLBACK_MODELS: comma separated models to use when the main one is busy or out of requests ("none" for none).
+    const fb = env.GEMINI_FALLBACK_MODELS?.trim();
+    const fallbackModels = fb === undefined || fb === "" ? undefined : fb.toLowerCase() === "none" ? [] : fb.split(",").map((m) => m.trim()).filter(Boolean);
+    return { provider: "gemini", llm: createGeminiLlm({ apiKey, model: env.GEMINI_MODEL, ...(fallbackModels ? { fallbackModels } : {}), ...(timeout > 0 ? { timeoutMs: timeout } : {}) }) };
   }
   if (choice === "anthropic" || env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN) {
     return { provider: "anthropic", llm: createAnthropicLlm() };

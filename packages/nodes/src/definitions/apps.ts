@@ -424,7 +424,15 @@ export const sheetsFind: NodeDefinition = {
   asTool: { name: "find_sheet_rows", description: "Find rows in the Google Sheet where a column matches a value." },
   fields: [
     ...sheetFields(),
-    { kind: "string", name: "column", label: "Search in column", required: true, aiFill: true, placeholder: "Phone" },
+    {
+      kind: "string",
+      name: "column",
+      label: "Search in column",
+      required: true,
+      aiFill: true,
+      placeholder: "Phone",
+      description: "Or \"any\" to search every column. With \"Contains\", every word has to be somewhere in the row. Tab can also list several tabs: Enquiries, Architect Data.",
+    },
     { kind: "string", name: "value", label: "Value", required: true, aiFill: true },
     matchField,
     { kind: "number", name: "limit", label: "Max rows", default: 50, min: 1, max: 500 },

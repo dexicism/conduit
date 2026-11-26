@@ -453,7 +453,7 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
   const seen = db.collection<{ workflowId: ObjectId; nodeId: string; key: string; createdAt: Date }>("seen_items");
   const factory = options.socketFactory ?? baileysSocketFactory;
   const me = `${process.pid}-${randomBytes(4).toString("hex")}`;
-  const [minDelay, maxDelay] = options.typingDelayMs ?? [700, 2000];
+  const [minDelay, maxDelay] = options.typingDelayMs ?? [300, 900];
 
   interface Local {
     credentialId: string;

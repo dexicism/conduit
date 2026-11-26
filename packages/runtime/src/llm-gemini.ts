@@ -38,12 +38,44 @@ interface GeminiResponse {
 export interface GeminiOptions {
   apiKey: string;
   model?: string;
+  /**
+   * Models to try, in order, when the main one is out of free requests or
+   * overloaded (429/5xx). Default: gemini-2.5-flash-lite. Empty list = none.
+   */
+  fallbackModels?: string[];
   baseUrl?: string;
   timeoutMs?: number;
   fetch?: typeof fetch;
+  /** Wait before retrying an overloaded model (tests set 0). */
+  retryDelayMs?: number;
 }
 
 export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+export const DEFAULT_GEMINI_FALLBACK = "gemini-2.5-flash-lite";
+
+/** How long to skip a model after it said its quota is used up. */
+const QUOTA_COOLDOWN_MS = 10 * 60_000;
+
+/** Thinking makes answers slower; small budgets keep chat replies quick. */
+function thinkingConfig(model: string, effort: LlmRequest["effort"]) {
+  if (!/gemini-2\.5/.test(model)) return undefined;
+  if (effort === "high") return { thinkingBudget: -1 };
+  if (effort === "medium") return { thinkingBudget: 1024 };
+  return { thinkingBudget: /pro/.test(model) ? 128 : 0 };
+}
+
+/** Another model can't use this one's thought signatures: send the plain parts. */
+function withoutSignatures(contents: GeminiContent[]): GeminiContent[] {
+  return contents.map((c) => ({
+    ...c,
+    parts: c.parts
+      .filter((p) => !p.thought)
+      .map((p) => {
+        const { thoughtSignature: _sig, ...rest } = p as GeminiPart & { thoughtSignature?: unknown };
+        return rest as GeminiPart;
+      }),
+  })).filter((c) => c.parts.length);
+}
 const BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 /** Marker for the opaque block that carries Gemini's own reply parts. */
@@ -107,10 +139,14 @@ function stopReason(finish: string | undefined, hasTools: boolean): LlmResult["s
 }
 
 export function createGeminiLlm(opts: GeminiOptions): LlmService {
-  const model = opts.model || DEFAULT_GEMINI_MODEL;
+  const primary = opts.model || DEFAULT_GEMINI_MODEL;
+  const models = [primary, ...(opts.fallbackModels ?? [DEFAULT_GEMINI_FALLBACK])].filter((m, i, all) => m && all.indexOf(m) === i);
   const base = (opts.baseUrl || BASE).replace(/\/+$/, "");
   const timeoutMs = opts.timeoutMs ?? 120_000;
+  const retryDelayMs = opts.retryDelayMs ?? 1200;
   const doFetch = opts.fetch ?? fetch;
+  /** Model -> time until which it's skipped (its quota ran out). */
+  const resting = new Map<string, number>();
   let seq = 0;
 
   return {
@@ -118,32 +154,63 @@ export function createGeminiLlm(opts: GeminiOptions): LlmService {
       const tools = req.tools?.length
         ? [{ functionDeclarations: req.tools.map((t) => ({ name: t.name, description: t.description, parametersJsonSchema: geminiSchema(t.inputSchema) })) }]
         : undefined;
-      const body = {
-        ...(req.system ? { systemInstruction: { parts: [{ text: req.system }] } } : {}),
-        contents: toGeminiContents(req.messages),
-        ...(tools ? { tools } : {}),
-        generationConfig: {
-          maxOutputTokens: req.maxTokens,
-          ...(req.jsonSchema && !tools ? { responseMimeType: "application/json", responseJsonSchema: geminiSchema(req.jsonSchema) } : {}),
-        },
+      const contents = toGeminiContents(req.messages);
+      const bodyFor = (model: string) => {
+        const thinking = thinkingConfig(model, req.effort);
+        return {
+          ...(req.system ? { systemInstruction: { parts: [{ text: req.system }] } } : {}),
+          contents: model === primary ? contents : withoutSignatures(contents),
+          ...(tools ? { tools } : {}),
+          generationConfig: {
+            maxOutputTokens: req.maxTokens,
+            ...(thinking ? { thinkingConfig: thinking } : {}),
+            ...(req.jsonSchema && !tools ? { responseMimeType: "application/json", responseJsonSchema: geminiSchema(req.jsonSchema) } : {}),
+          },
+        };
       };
-      let res: Response;
-      try {
-        res = await doFetch(`${base}/models/${encodeURIComponent(model)}:generateContent`, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-goog-api-key": opts.apiKey },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-      } catch (err) {
-        const e = err as Error;
-        if (e.name === "TimeoutError") throw new StepError(`Gemini took longer than ${Math.round(timeoutMs / 1000)} s to answer`);
-        throw new StepError("Can't reach Gemini. Check the internet connection.");
+      const send = async (model: string) => {
+        try {
+          return await doFetch(`${base}/models/${encodeURIComponent(model)}:generateContent`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-goog-api-key": opts.apiKey },
+            body: JSON.stringify(bodyFor(model)),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+        } catch (err) {
+          const e = err as Error;
+          if (e.name === "TimeoutError") throw new StepError(`Gemini took longer than ${Math.round(timeoutMs / 1000)} s to answer`);
+          throw new StepError("Can't reach Gemini. Check the internet connection.");
+        }
+      };
+
+      let res: Response | null = null;
+      let data: GeminiResponse = {};
+      let model = primary;
+      let lastBusy = "";
+      const now = Date.now();
+      const order = [...models.filter((m) => (resting.get(m) ?? 0) <= now), ...models.filter((m) => (resting.get(m) ?? 0) > now)];
+      for (const m of order) {
+        model = m;
+        res = await send(m);
+        data = (await res.json().catch(() => ({}))) as GeminiResponse;
+        // Overloaded: one quick retry on the same model.
+        if (res.status >= 500 && retryDelayMs >= 0) {
+          await new Promise((r) => setTimeout(r, retryDelayMs));
+          res = await send(m);
+          data = (await res.json().catch(() => ({}))) as GeminiResponse;
+        }
+        if (res.status === 429 || res.status >= 500) {
+          lastBusy = data.error?.message ?? `status ${res.status}`;
+          if (res.status === 429) resting.set(m, Date.now() + QUOTA_COOLDOWN_MS);
+          continue;
+        }
+        break;
       }
-      const data = (await res.json().catch(() => ({}))) as GeminiResponse;
+      if (!res) throw new StepError("No Gemini model configured");
       if (!res.ok) {
         const msg = data.error?.message ?? `request failed with status ${res.status}`;
-        if (res.status === 429) throw new StepError(`Gemini: too many requests for now (free-tier limit). Try again in a minute. ${msg}`);
+        if (res.status === 429) throw new StepError(`Gemini: out of free requests on ${models.join(" and ")} for now. Wait a while, or turn on billing for the key at aistudio.google.com. (${lastBusy.split("\n")[0]})`);
+        if (res.status >= 500) throw new StepError(`Gemini is overloaded right now, try again in a minute. (${lastBusy.split("\n")[0]})`);
         if (res.status === 404) throw new StepError(`Gemini doesn't have the model "${model}". Set GEMINI_MODEL to one from aistudio.google.com.`);
         if (res.status === 400 && /API key/i.test(msg)) throw new StepError("Gemini rejected the API key. Check GEMINI_API_KEY.");
         throw new StepError(`Gemini: ${msg}`);

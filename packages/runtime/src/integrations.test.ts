@@ -1383,6 +1383,22 @@ describe("due tasks", () => {
       { id: "f", type: "app.sheets.find", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries", column: "Phone No.", value: "+91 98000 00106", match: "phone" } },
     ]);
     expect(second.output("f")!.map((r) => r["Owner Name"])).toEqual(["Anil"]);
+    // One search over several tabs and every column: all the words must be in the row, any order.
+    const everywhere = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["f"] } },
+      { id: "f", type: "app.sheets.find", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries, Team", column: "any", value: "saturday MOHAN", match: "contains" } },
+    ]);
+    expect(everywhere.output("f")!.map((r) => [r.tab, r["Owner Name"]])).toEqual([["Enquiries", "Mohan"]]);
+    const ravi = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["f"] } },
+      { id: "f", type: "app.sheets.find", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries, Team", column: "any", value: "ravi", match: "contains" } },
+    ]);
+    expect(ravi.output("f")!.map((r) => r.tab)).toEqual(["Enquiries", "Team"]);
+    const byPhone = await run(ws, [
+      { id: "t", type: "trigger.manual", to: { main: ["f"] } },
+      { id: "f", type: "app.sheets.find", parameters: { credential: id, spreadsheetId: FAKE.spreadsheetId, sheet: "Enquiries, Team", column: "any", value: "+91 98123 45678", match: "phone" } },
+    ]);
+    expect(byPhone.output("f")!.map((r) => [r.tab, r.Name])).toEqual([["Team", "Ravi"]]);
     delete fake.state.sheets[FAKE.spreadsheetId]!.Enquiries;
   });
 });
