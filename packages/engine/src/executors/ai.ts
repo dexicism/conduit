@@ -2,7 +2,7 @@ import { aiFillSchema, collectAiFills, fillAiPlaceholders, resolveParameters, ty
 import { DEFAULT_MODEL, toolsOfAgent, type Assignment, type SwitchCase } from "@conduit/nodes";
 import { calculate } from "../calc";
 import type { ExecContext, Executor, Item, LlmBlock, LlmMessage, LlmRequest, LlmResult, LlmService, LlmTool } from "../types";
-import { StepError } from "../types";
+import { StepError, SHARED_MEMORY } from "../types";
 import { parseJsonParam, toNumber, toText } from "../values";
 import { APP_ACTIONS } from "./apps";
 import { performHttp } from "./core";
@@ -65,11 +65,20 @@ async function imageBlocks(ctx: ExecContext, p: Record<string, unknown>): Promis
   return [{ type: "image", mimetype, base64: base64.replace(/\s/g, "") }];
 }
 
-/** Agents need today's date for "remind me Friday" or "overdue since Monday". */
+/**
+ * Agents need today's date for "remind me Friday" or "overdue since Monday".
+ * Only the date goes into the instructions, so they stay the same all day and
+ * the AI provider can cache them (cheaper, faster); the time goes with the message.
+ */
 function withNow(instructions: string, now: Date): string {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const when = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeStyle: "short", timeZone: tz }).format(now);
-  return `${instructions ? `${instructions}\n\n` : ""}It's now ${when} (${tz}).`;
+  const day = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: tz }).format(now);
+  return `${instructions ? `${instructions}\n\n` : ""}It's now ${day} (${tz}); the time is given with each message.`;
+}
+
+function timeNow(now: Date): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  return new Intl.DateTimeFormat("en-GB", { timeStyle: "short", timeZone: tz }).format(now);
 }
 
 /** Single structured call: the reply is JSON matching `schema`. */
@@ -387,15 +396,24 @@ export const agentExecutor: Executor = async (ctx) => {
     if (!prompt) throw new StepError("The task or message is empty");
     const maxRounds = Math.min(25, Math.max(1, Math.floor(toNumber(p.maxIterations ?? 10, "Max tool rounds"))));
     const effort = (["low", "medium", "high"].includes(toText(p.effort)) ? toText(p.effort) : "medium") as LlmRequest["effort"];
-    const useMemory = p.memory === "window" && ctx.services.memory;
+    const remembers = p.memory === "window" || p.memory === "shared";
+    const useMemory = remembers && ctx.services.memory;
+    const memoryNode = p.memory === "shared" ? SHARED_MEMORY : ctx.node.id;
     const sessionKey = toText(p.sessionKey).trim();
-    if (p.memory === "window" && !sessionKey) throw new StepError("Conversation ID is empty, so memory can't be used");
+    if (remembers && !sessionKey) throw new StepError("Conversation ID is empty, so memory can't be used");
 
     const messages: LlmMessage[] = [];
     if (useMemory) {
-      for (const t of await ctx.services.memory!.load(ctx.node.id, sessionKey)) messages.push({ role: t.role, content: [{ type: "text", text: t.text }] });
+      // Shared memory can hold several messages in a row from us (a checker's question, a reminder): merge them.
+      for (const t of await ctx.services.memory!.load(memoryNode, sessionKey)) {
+        const last = messages.at(-1);
+        if (last?.role === t.role) (last.content[0] as { text: string }).text += `\n\n${t.text}`;
+        else messages.push({ role: t.role, content: [{ type: "text", text: t.text }] });
+      }
+      if (messages[0]?.role === "assistant") messages.unshift({ role: "user", content: [{ type: "text", text: "(Earlier in this chat)" }] });
+      if (messages.at(-1)?.role === "user") messages.push({ role: "assistant", content: [{ type: "text", text: "(No reply was sent.)" }] });
     }
-    messages.push({ role: "user", content: [...(await imageBlocks(ctx, p)), { type: "text", text: prompt }] });
+    messages.push({ role: "user", content: [...(await imageBlocks(ctx, p)), { type: "text", text: `[${timeNow(ctx.services.now())}] ${prompt}` }] });
 
     const tools = bindTools(ctx, item, i, 0);
     const byName = new Map(tools.map((t) => [t.spec.name, t]));
@@ -445,10 +463,11 @@ export const agentExecutor: Executor = async (ctx) => {
 
     if (useMemory) {
       await ctx.services.memory!.append(
-        ctx.node.id,
+        memoryNode,
         sessionKey,
         [
-          { role: "user", text: prompt },
+          // A photo or file's ID is kept, so "make a PDF of the photos I sent" works later.
+          { role: "user", text: /^[a-f\d]{24}$/i.test(toText(p.image).trim()) ? `${prompt}\n[Attached file, media ID ${toText(p.image).trim()}]` : prompt },
           { role: "assistant", text: answer },
         ],
         Math.max(1, Math.floor(toNumber(p.memoryTurns ?? 10, "Turns to remember"))),

@@ -1,6 +1,6 @@
 import type { KeyValuePair } from "@conduit/nodes";
 import type { EngineServices, Executor, HttpResponse, IntegrationServices, Item } from "../types";
-import { StepError } from "../types";
+import { StepError, SHARED_MEMORY } from "../types";
 import { parseJsonParam, toNumber, toText } from "../values";
 import { MORE_APP_ACTIONS } from "./apps-more";
 import { WHATSAPP_WEB_ACTIONS } from "./apps-whatsapp-web";
@@ -260,6 +260,11 @@ const sheetsAppend: AppAction = async (p, services) => {
   if (res.status >= 400) throw googleError(res, "Google Sheets");
   const updatedRange = toText((res.body as { updates?: { updatedRange?: string } }).updates?.updatedRange);
   const rowNum = Number(/![A-Z]+(\d+)/.exec(updatedRange)?.[1] ?? NaN);
+  await logActivity(services, accessToken, id, p, {
+    row: Number.isFinite(rowNum) ? rowNum : null,
+    name: nameOf(header, row),
+    change: `Added: ${Object.entries(values).filter(([, v]) => toText(v).trim()).map(([k, v]) => `${k}=${toText(v)}`).join("; ")}`,
+  });
   return { updatedRange, row: Number.isFinite(rowNum) ? rowNum : null, values };
 };
 
@@ -468,6 +473,7 @@ const sheetsUpdate: AppAction = async (p, services) => {
         if (res.status >= 400) throw googleError(res, "Google Sheets");
         const updatedRange = toText((res.body as { updates?: { updatedRange?: string } }).updates?.updatedRange);
         const added = Number(/![A-Z]+(\d+)/.exec(updatedRange)?.[1] ?? NaN);
+        await logActivity(services, accessToken, id, p, { row: Number.isFinite(added) ? added : null, name: nameOf(header, row), change: `Added: ${changes.map((c) => `${header[c.col]}=${c.value}`).join("; ")}` });
         return { action: "added", ...rowObject(header, row.map((v) => v ?? ""), Number.isFinite(added) ? added : rows.length + 2) };
       }
       if (p.ifMissing === "skip") return { action: "not_found", row: null };
@@ -490,6 +496,11 @@ const sheetsUpdate: AppAction = async (p, services) => {
   const after = [...before];
   for (const c of changes) after[c.col] = c.value;
   const changed = Object.fromEntries(changes.filter((c) => (before[c.col] ?? "") !== c.value).map((c) => [header[c.col]!, { from: before[c.col] ?? "", to: c.value }]));
+  await logActivity(services, accessToken, id, p, {
+    row: rowNumber,
+    name: nameOf(header, after),
+    change: Object.entries(changed).map(([k, v]) => `${k}: ${v.from || "(empty)"} -> ${v.to || "(empty)"}`).join("; "),
+  });
   return { action: "updated", changed, ...rowObject(header, after, rowNumber) };
 };
 
@@ -946,6 +957,236 @@ const driveRead: AppAction = async (p, services) => {
   return { id: meta.id, name: meta.name, mimeType: meta.mimeType, content };
 };
 
+
+// ---------------------------------------------------------------------------
+// Team operations on a sheet: rules as text, an activity log, follow-up questions
+// ---------------------------------------------------------------------------
+
+/** A short local time like 26-11-26 14:05 (the sheet's own date style), in the server's time zone. */
+function localStamp(d: Date): string {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(d)
+      .map((x) => [x.type, x.value]),
+  );
+  return `${p.day}-${p.month}-${p.year} ${p.hour}:${p.minute}`;
+}
+
+/** Machine-readable local time for "next reminder" (read back by the same server). */
+function localIso(d: Date): string {
+  const z = new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
+  return z.toISOString().slice(0, 16).replace("T", " ");
+}
+const fromLocalIso = (s: string) => {
+  const t = Date.parse(s.trim().replace(" ", "T"));
+  return Number.isNaN(t) ? null : t;
+};
+
+/** Appends one row, filling columns by their header names; other columns stay untouched. */
+async function appendByHeader(services: EngineServices, token: string | undefined, id: string, sheet: unknown, values: Record<string, string>) {
+  const header = await readHeader(services, token, id, sheet);
+  const row: Array<string | null> = header.map((h) => {
+    const k = Object.keys(values).find((x) => x.toLowerCase() === h.trim().toLowerCase());
+    return k === undefined ? null : values[k]!;
+  });
+  if (!row.some((v) => v !== null)) throw new StepError(`The "${String(sheet)}" tab needs the columns ${Object.keys(values).join(", ")}`);
+  const res = await callJson(services, {
+    method: "POST",
+    url: sheetsUrl(id, sheetRange(sheet, "A1"), ":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"),
+    headers: { authorization: `Bearer ${token}` },
+    body: { values: [row] },
+  });
+  if (res.status >= 400) throw googleError(res, "Google Sheets");
+}
+
+/**
+ * Writes one line to an activity tab (When, Who, Tab, Row, Name, Change) after a
+ * sheet change. Never fails the change itself: a missing tab is just skipped.
+ */
+async function logActivity(services: EngineServices, token: string | undefined, id: string, p: Json, entry: { row: number | null; name: string; change: string }) {
+  const tab = toText(p.activitySheet).trim();
+  if (!tab || !entry.change) return;
+  try {
+    await appendByHeader(services, token, id, tab, {
+      When: localStamp(services.now()),
+      Who: toText(p.activityBy).trim() || "Bot",
+      Tab: toText(p.sheet).trim(),
+      Row: entry.row ? String(entry.row) : "",
+      Name: entry.name,
+      Change: entry.change.slice(0, 1000),
+    });
+  } catch {
+    /* the log is a nice-to-have */
+  }
+}
+
+/** The first cell that looks like a name in a row, for the activity log. */
+function nameOf(header: string[], cells: Array<string | null>): string {
+  const i = header.findIndex((h) => /name|customer|client|firm/i.test(h) && (cells[header.indexOf(h)] ?? "").trim());
+  return i >= 0 ? (cells[i] ?? "").trim() : (cells.find((c) => (c ?? "").trim()) ?? "").trim();
+}
+
+const textCache = new Map<string, { at: number; value: Json }>();
+
+/** A whole tab as plain text (rules, notes, a price list), for an AI step's instructions. Kept for a few minutes. */
+const sheetsText: AppAction = async (p, services) => {
+  const id = spreadsheetIdOf(p.spreadsheetId);
+  const key = `${toText(p.credential)}|${id}|${toText(p.sheet)}`;
+  const keepMs = Math.max(0, toNumber(p.cacheMinutes ?? 10, "Keep for")) * 60_000;
+  const hit = textCache.get(key);
+  if (hit && services.now().getTime() - hit.at < keepMs) return hit.value;
+  const { accessToken } = await account(p, "google", services);
+  let value: Json;
+  try {
+    const { header, rows } = await readTable(services, accessToken, id, p.sheet, 2000);
+    const used = header.map((h, i) => (h.trim() || rows.some((r) => (r[i] ?? "").trim()) ? i : -1)).filter((i) => i >= 0);
+    const lines = rows
+      .filter((r) => r.some((c) => c.trim()))
+      .map((r) => (used.length === 1 ? `- ${r[used[0]!]!.trim()}` : `- ${used.filter((i) => (r[i] ?? "").trim()).map((i) => `${header[i] || `Column ${i + 1}`}: ${r[i]!.trim()}`).join("; ")}`));
+    const title = used.length === 1 && header[used[0]!]?.trim() ? `${header[used[0]!]!.trim()}:\n` : "";
+    value = { text: lines.length ? `${title}${lines.join("\n")}` : "", lines: lines.length, missing: false };
+  } catch (e) {
+    if (p.ifMissing !== "empty") throw e;
+    value = { text: "", lines: 0, missing: true };
+  }
+  textCache.set(key, { at: services.now().getTime(), value });
+  if (textCache.size > 200) textCache.delete(textCache.keys().next().value!);
+  return value;
+};
+
+const FU = ["ID", "Asked At", "Person", "Phone", "About", "Question", "Status", "Reminders", "Next Reminder", "Answer"] as const;
+
+function followupColumns(header: string[]) {
+  const at = (name: string) => header.findIndex((h) => h.trim().toLowerCase() === name.toLowerCase());
+  const col = Object.fromEntries(FU.map((n) => [n, at(n)])) as Record<(typeof FU)[number], number>;
+  const missing = FU.filter((n) => col[n] < 0);
+  if (missing.length) throw new StepError(`The follow-ups tab needs these columns: ${FU.join(", ")}. Missing: ${missing.join(", ")}`);
+  return col;
+}
+
+/** Sends one WhatsApp message and puts it in the person's shared memory, so their reply is understood. */
+async function sendAndRemember(services: EngineServices, waCredential: string, to: string, text: string, label: string) {
+  const w = integrations(services).whatsappWeb;
+  if (!w) throw new StepError("WhatsApp (linked phone) isn't available on this server");
+  const r = await w.send(waCredential, { to, text });
+  const key = r.chatId.split("@")[0]!.split(":")[0]!;
+  if (services.memory && key && !r.chatId.endsWith("@g.us")) await services.memory.append(SHARED_MEMORY, key, [{ role: "assistant", text: `[${label}] ${text}` }], 10);
+  return r;
+}
+
+async function setCells(services: EngineServices, token: string | undefined, id: string, sheet: unknown, row: number, cells: Array<[number, string]>) {
+  if (!cells.length) return;
+  const res = await callJson(services, {
+    method: "POST",
+    url: `https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchUpdate`,
+    headers: { authorization: `Bearer ${token}` },
+    body: { valueInputOption: "USER_ENTERED", data: cells.map(([c, v]) => ({ range: sheetRange(sheet, `${columnLetter(c)}${row}`), values: [[v]] })) },
+  });
+  if (res.status >= 400) throw googleError(res, "Google Sheets");
+}
+
+/** Ask someone a question on WhatsApp and keep track of it until they answer. */
+const followupAsk: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const id = spreadsheetIdOf(p.spreadsheetId);
+  const { header, rows } = await readTable(services, accessToken, id, p.sheet);
+  const col = followupColumns(header);
+  const person = toText(p.person).trim();
+  const about = toText(p.about).trim();
+  const question = toText(p.question).trim();
+  if (!question) throw new StepError("The question is empty");
+  let phone = toText(p.phone).trim();
+  if (!phone && person && toText(p.phonesFrom).trim()) phone = (await teamPhones(services, accessToken, id, toText(p.phonesFrom).trim())).get(norm(person)) ?? "";
+  if (!phone) throw new StepError(`No phone number for ${person || "that person"}. Add it to the Team tab.`);
+  const cell = (r: string[], c: number) => (r[c] ?? "").trim();
+  // Already asked about this and still waiting: don't ask twice.
+  const open = rows.find((r) => cell(r, col.Status).toLowerCase() === "waiting" && cellMatches(cell(r, col.Phone), phone, "phone") && (!about || norm(cell(r, col.About)) === norm(about)));
+  if (open) return { status: "already_waiting", id: cell(open, col.ID), askedAt: cell(open, col["Asked At"]), question: cell(open, col.Question) };
+  const waitMin = Math.max(5, toNumber(p.waitMinutes ?? 60, "Wait"));
+  const sent = await sendAndRemember(services, toText(p.whatsapp), phone, question, toText(p.label).trim() || "Follow-up question");
+  const now = services.now();
+  const fid = `F${rows.length + 1}`;
+  await appendByHeader(services, accessToken, id, p.sheet, {
+    ID: fid,
+    "Asked At": localStamp(now),
+    Person: person,
+    Phone: phone,
+    About: about,
+    Question: question,
+    Status: "Waiting",
+    Reminders: "0",
+    "Next Reminder": localIso(new Date(now.getTime() + waitMin * 60_000)),
+    Answer: "",
+  });
+  return { status: "asked", id: fid, person, phone, about, messageId: sent.messageId };
+};
+
+/** Every so often: re-ask the ones still waiting, and give up (for the owner to see) after a few reminders. */
+const followupRemind: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const id = spreadsheetIdOf(p.spreadsheetId);
+  const { header, rows } = await readTable(services, accessToken, id, p.sheet);
+  const col = followupColumns(header);
+  const max = Math.max(0, Math.floor(toNumber(p.maxReminders ?? 2, "Reminders")));
+  const waitMin = Math.max(5, toNumber(p.waitMinutes ?? 60, "Wait"));
+  const now = services.now();
+  const out: Json[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]!;
+    const cell = (c: number) => (r[c] ?? "").trim();
+    if (cell(col.Status).toLowerCase() !== "waiting") continue;
+    const next = fromLocalIso(cell(col["Next Reminder"]));
+    if (next !== null && next > now.getTime()) continue;
+    const done = Number(cell(col.Reminders)) || 0;
+    const info = { id: cell(col.ID), person: cell(col.Person), phone: cell(col.Phone), about: cell(col.About), question: cell(col.Question), askedAt: cell(col["Asked At"]), reminders: done, row: i + 2 };
+    if (done < max) {
+      try {
+        await sendAndRemember(services, toText(p.whatsapp), info.phone, `${toText(p.reminderPrefix).trim() || "Reminder:"} ${info.question}`, toText(p.label).trim() || "Follow-up reminder");
+      } catch (e) {
+        out.push({ action: "failed", error: (e as Error).message, ...info });
+        continue;
+      }
+      await setCells(services, accessToken, id, p.sheet, i + 2, [
+        [col.Reminders, String(done + 1)],
+        [col["Next Reminder"], localIso(new Date(now.getTime() + waitMin * 60_000))],
+      ]);
+      out.push({ action: "reminded", ...info, reminders: done + 1 });
+    } else {
+      await setCells(services, accessToken, id, p.sheet, i + 2, [[col.Status, "No reply"]]);
+      out.push({ action: "gave_up", ...info });
+    }
+  }
+  return out.length ? out : { none: true };
+};
+
+/** When someone writes in: their open questions count as answered (their message is the answer). */
+const followupAnswered: AppAction = async (p, services) => {
+  const { accessToken } = await account(p, "google", services);
+  const id = spreadsheetIdOf(p.spreadsheetId);
+  let table: { header: string[]; rows: string[][] };
+  try {
+    table = await readTable(services, accessToken, id, p.sheet);
+  } catch (e) {
+    if (p.ifMissing === "empty") return { marked: 0, about: [] };
+    throw e;
+  }
+  const col = followupColumns(table.header);
+  const phone = toText(p.phone).trim();
+  if (!phone) return { marked: 0, about: [] };
+  const answer = toText(p.answer).trim().slice(0, 300);
+  const about: string[] = [];
+  for (let i = 0; i < table.rows.length; i++) {
+    const r = table.rows[i]!;
+    if ((r[col.Status] ?? "").trim().toLowerCase() !== "waiting" || !cellMatches(r[col.Phone] ?? "", phone, "phone")) continue;
+    await setCells(services, accessToken, id, p.sheet, i + 2, [
+      [col.Status, "Answered"],
+      [col.Answer, answer],
+    ]);
+    about.push((r[col.About] ?? "").trim() || (r[col.Question] ?? "").trim());
+  }
+  return { marked: about.length, about };
+};
+
 export const APP_ACTIONS: Record<string, AppAction> = {
   ...MORE_APP_ACTIONS,
   ...WHATSAPP_WEB_ACTIONS,
@@ -958,6 +1199,10 @@ export const APP_ACTIONS: Record<string, AppAction> = {
   "app.slack.send": slackSend,
   "app.gmail.send": gmailSend,
   "app.sheets.append": sheetsAppend,
+  "app.sheets.text": sheetsText,
+  "app.followups.ask": followupAsk,
+  "app.followups.remind": followupRemind,
+  "app.followups.answered": followupAnswered,
   "app.sheets.read": sheetsRead,
   "app.sheets.find": sheetsFind,
   "app.tasks.add": tasksAdd,

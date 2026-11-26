@@ -87,6 +87,9 @@ describe("AI Agent", () => {
     // Tool specs: the AI-fill slot became the HTTP tool's schema.
     expect(seen[0]!.tools!.find((t) => t.name === "weather")!.inputSchema).toMatchObject({ required: ["city"], additionalProperties: false });
     expect(seen[0]!.system?.startsWith("Be brief.\n\nIt's now ")).toBe(true);
+    // Only the date is in the instructions (cacheable all day); the time goes with the message.
+    expect(seen[0]!.system).toMatch(/the time is given with each message\.$/);
+    expect((seen[0]!.messages.at(-1)!.content.at(-1) as { text: string }).text).toMatch(/^\[\d{2}:\d{2}\] /);
     // Second request: assistant turn kept verbatim (incl. opaque thinking), then both results in ONE user message.
     const second = seen[1]!.messages;
     expect(second[1]!.content[0]).toEqual({ type: "opaque", raw: { type: "thinking", signature: "abc" } });
@@ -151,6 +154,33 @@ describe("AI Agent", () => {
     ]);
   });
 
+  it("shares memory across workflows for the same person: a question sent earlier is part of the chat", async () => {
+    const store = new Map<string, MemoryTurn[]>();
+    const memory = {
+      load: vi.fn(async (node: string, key: string) => store.get(`${node}:${key}`) ?? []),
+      append: vi.fn(async (node: string, key: string, turns: MemoryTurn[]) => void store.set(`${node}:${key}`, [...(store.get(`${node}:${key}`) ?? []), ...turns])),
+    };
+    // What a checker workflow sent earlier (two messages in a row).
+    store.set("__shared:919800000001", [
+      { role: "assistant", text: "[Checker asked] Is the quotation for Mohan ready?" },
+      { role: "assistant", text: "[Checker asked] Reminder: any update?" },
+    ]);
+    const g = agentGraph([], { memory: "shared", sessionKey: "${['$input']['chat']}" });
+    let seen: LlmRequest | null = null;
+    const svc = services((req) => ((seen = structuredClone(req)), reply([text("Great, marked as sent.")])), { memory });
+    await run(g, [{ json: { q: "done", chat: "919800000001" } }], svc);
+    const msgs = seen!.messages.map((m) => [m.role, (m.content.at(-1) as { text: string }).text.replace(/^\[\d{2}:\d{2}\] /, "")]);
+    expect(msgs).toEqual([
+      ["user", "(Earlier in this chat)"],
+      ["assistant", "[Checker asked] Is the quotation for Mohan ready?\n\n[Checker asked] Reminder: any update?"],
+      ["user", "done"],
+    ]);
+    expect(memory.load).toHaveBeenCalledWith("__shared", "919800000001");
+    expect(store.get("__shared:919800000001")!.slice(-2)).toEqual([
+      { role: "user", text: "done" },
+      { role: "assistant", text: "Great, marked as sent." },
+    ]);
+  });
   it("calls sub-workflows and code tools", async () => {
     const g = agentGraph([
       { id: "wf", type: "tool.workflow", parameters: { workflowId: "abc", input: `{"request": "${buildAiFill("request", "Req")}"}` } },

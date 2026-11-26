@@ -108,6 +108,14 @@ export const whatsappWebSend: NodeDefinition = {
     { kind: "string", name: "fileBase64", label: "File content (base64)", required: true, showIf: { field: "fileSource", equals: ["base64"] } },
     { kind: "string", name: "fileName", label: "File name", showIf: { field: "fileSource", equals: ["media", "base64"] }, placeholder: "quotation.pdf" },
     { kind: "string", name: "mimetype", label: "File type", showIf: { field: "fileSource", equals: ["base64"] }, placeholder: "Worked out from the file name if empty" },
+    {
+      kind: "boolean",
+      name: "shareInChat",
+      label: "Add to the person's shared memory",
+      default: false,
+      description: "AI steps with shared memory then know this was sent, so a reply like \"done\" makes sense to them.",
+    },
+    { kind: "string", name: "shareLabel", label: "Shown as", placeholder: "Checker asked", expression: false, showIf: { field: "shareInChat", equals: [true] } },
   ],
   outputSample: { messageId: "3EB0D2F1A9C8B7E6", chatId: "919876543210@s.whatsapp.net", sentFile: null },
 };
@@ -220,6 +228,14 @@ export const whatsappWebSendDocument: NodeDefinition = {
     { kind: "string", name: "to", label: "To", required: true, placeholder: "+919876543210 or a chat id", aiFill: true },
     { kind: "string", name: "caption", label: "Message with it", multiline: true, aiFill: true },
     ...documentFields(true),
+    {
+      kind: "boolean",
+      name: "shareInChat",
+      label: "Add to the person's shared memory",
+      default: false,
+      description: "AI steps with shared memory then know this was sent, so a reply like \"done\" makes sense to them.",
+    },
+    { kind: "string", name: "shareLabel", label: "Shown as", placeholder: "Checker asked", expression: false, showIf: { field: "shareInChat", equals: [true] } },
   ],
   outputSample: { messageId: "3EB0D2F1A9C8B7E6", chatId: "919876543210@s.whatsapp.net", fileName: "quotation-mehta.pdf", pages: 1, total: 10000 },
 };

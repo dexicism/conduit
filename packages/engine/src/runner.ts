@@ -19,6 +19,7 @@ import {
 } from "./types";
 import { teamCheckExecutor } from "./executors/team";
 import { pdfExecutor } from "./executors/documents";
+import { excelExecutor, imagesToPdfExecutor, pdfMergeExecutor, pdfPagesExecutor, pdfStampExecutor } from "./executors/files";
 import { toNumber } from "./values";
 
 export const MAX_STEPS = 10_000;
@@ -29,6 +30,11 @@ const EXECUTORS: Record<string, Executor> = {
   "flow.onlyNew": onlyNewExecutor,
   "app.team.check": teamCheckExecutor,
   "doc.pdf": pdfExecutor,
+  "doc.excel": excelExecutor,
+  "doc.imagesToPdf": imagesToPdfExecutor,
+  "doc.pdfMerge": pdfMergeExecutor,
+  "doc.pdfPages": pdfPagesExecutor,
+  "doc.pdfStamp": pdfStampExecutor,
   "flow.switch": switchExecutor,
   "flow.wait": waitExecutor,
   "core.http": httpExecutor,

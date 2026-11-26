@@ -1,5 +1,5 @@
 import type { EngineServices, IntegrationServices } from "../types";
-import { StepError } from "../types";
+import { SHARED_MEMORY, StepError } from "../types";
 import { buildPdf } from "../pdf";
 import { toText } from "../values";
 import { docInputOf, pdfName } from "./documents";
@@ -34,6 +34,18 @@ const MIME_BY_EXT: Record<string, string> = {
   ogg: "audio/ogg",
 };
 
+/**
+ * "Add to the person's shared memory": the assistant that reads their reply then
+ * knows what was asked. Keyed by the phone number (digits), like the trigger's `from`.
+ */
+async function rememberSent(p: Json, services: EngineServices, chatId: string, text: string, fileName: string | null) {
+  if (!p.shareInChat || !services.memory || chatId.endsWith("@g.us")) return;
+  const key = chatId.split("@")[0]!.split(":")[0]!;
+  const label = toText(p.shareLabel).trim() || "Message sent to them";
+  const what = [text.trim(), fileName ? `(file: ${fileName})` : ""].filter(Boolean).join(" ");
+  if (key && what) await services.memory.append(SHARED_MEMORY, key, [{ role: "assistant", text: `[${label}] ${what}` }], 10);
+}
+
 /** Text, or a file (a photo/document someone sent, or base64 from another step), to a person or group. */
 const send: Action = async (p, services) => {
   const id = credentialId(p);
@@ -60,6 +72,7 @@ const send: Action = async (p, services) => {
   if (text.length > 65_000) throw new StepError("That message is too long for WhatsApp");
   try {
     const r = await wa(services).send(id, { to, text, file });
+    await rememberSent(p, services, r.chatId, text, file?.fileName ?? null);
     return { messageId: r.messageId, chatId: r.chatId, sentFile: file ? file.fileName : null };
   } catch (e) {
     throw new StepError((e as Error).message);
@@ -206,6 +219,7 @@ const sendDocument: Action = async (p, services) => {
   const fileName = pdfName(p.fileName, input.title);
   try {
     const r = await wa(services).send(id, { to, text: toText(p.caption), file: { base64: pdf.base64, mimetype: "application/pdf", fileName } });
+    await rememberSent(p, services, r.chatId, toText(p.caption), fileName);
     return { messageId: r.messageId, chatId: r.chatId, fileName, pages: pdf.pages, total: pdf.total, ...(pdf.replaced.length ? { replacedCharacters: pdf.replaced } : {}) };
   } catch (e) {
     throw new StepError((e as Error).message);

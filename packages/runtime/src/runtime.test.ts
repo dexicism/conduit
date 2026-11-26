@@ -187,7 +187,8 @@ describe("runtime", () => {
       const status = async (x: ObjectId) => (await rt.collections.executions.findOne({ _id: x }))!.status;
       await expect.poll(() => status(id), { timeout: 5000 }).toBe("waiting");
       await expect.poll(() => status(id), { timeout: 8000 }).toBe("success");
-      expect(await rt.collections.jobs.countDocuments({ executionId: id })).toBe(0);
+      // The job entry is removed right after the run finishes: give it a moment under load.
+      await expect.poll(() => rt.collections.jobs.countDocuments({ executionId: id }), { timeout: 3000 }).toBe(0);
 
       const id2 = await start(wfId);
       await expect.poll(() => status(id2), { timeout: 5000 }).toBe("waiting");

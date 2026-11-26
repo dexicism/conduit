@@ -212,6 +212,120 @@ const sheetFields = (): ParamField[] => [
   { kind: "string", name: "sheet", label: "Sheet", required: true, default: "Sheet1", dynamicOptions: "google.sheets" },
 ];
 
+
+/** "Log changes to an activity tab", shared by add row and update row. */
+const activityFields = (): ParamField[] => [
+  {
+    kind: "string",
+    name: "activitySheet",
+    label: "Log changes to tab",
+    expression: false,
+    placeholder: "Activity (optional)",
+    description: "Writes who changed what to this tab (columns When, Who, Tab, Row, Name, Change). Leave empty for no log.",
+  },
+  { kind: "string", name: "activityBy", label: "Changed by", placeholder: "${['who']['person']['name']}" },
+];
+
+export const sheetsText: NodeDefinition = {
+  ...action,
+  type: "app.sheets.text",
+  name: "Google Sheets: read tab as text",
+  description: "Reads a whole tab as plain text, like a list of rules, a price list or notes, to put into an AI step's instructions. Kept for a few minutes so it isn't read on every message.",
+  icon: "Sheet",
+  app: "google",
+  keywords: ["google", "sheets", "rules", "instructions", "text", "notes", "price list", "read"],
+  asTool: { name: "read_sheet_text", description: "Read a whole tab of the Google Sheet as text." },
+  fields: [
+    ...sheetFields(),
+    { kind: "number", name: "cacheMinutes", label: "Keep for (minutes)", default: 10, min: 0, max: 1440 },
+    {
+      kind: "select",
+      name: "ifMissing",
+      label: "If the tab doesn't exist",
+      default: "empty",
+      options: [
+        { value: "empty", label: "Carry on with empty text" },
+        { value: "fail", label: "Stop with an error" },
+      ],
+    },
+  ],
+  outputSample: { text: "Bot Rules:\n- Quotations go out within 2 days of a site visit\n- No customer messages after 8 pm", lines: 2, missing: false },
+};
+
+const followupBase = (): ParamField[] => [
+  ...sheetFields().map((f): ParamField => (f.name === "sheet" && f.kind === "string" ? { ...f, default: "Follow-ups" } : f)),
+];
+
+export const followupsAsk: NodeDefinition = {
+  ...action,
+  type: "app.followups.ask",
+  name: "Follow-ups: ask someone",
+  description:
+    "Sends a question on WhatsApp (\"Is the quotation for Mohan ready?\"), writes it to a Follow-ups tab and puts it in the person's shared memory, so the assistant understands their reply. Won't ask the same thing twice while the first is still waiting. Tab columns: ID, Asked At, Person, Phone, About, Question, Status, Reminders, Next Reminder, Answer.",
+  icon: "MessageCircleQuestion",
+  app: "google",
+  keywords: ["follow up", "ask", "question", "check", "supervisor", "chase", "whatsapp", "reminder"],
+  asTool: { name: "ask_followup", description: "Ask a team member a question on WhatsApp and keep track of it until they answer (they get reminders if they don't)." },
+  fields: [
+    ...followupBase(),
+    { kind: "credential", name: "whatsapp", label: "WhatsApp number", app: "whatsappWeb", required: true },
+    { kind: "string", name: "person", label: "Person", aiFill: true, placeholder: "Ravi" },
+    { kind: "string", name: "phone", label: "Phone", aiFill: true, placeholder: "Found from the team tab if empty" },
+    { kind: "string", name: "phonesFrom", label: "Team tab for phone numbers", expression: false, placeholder: "Team" },
+    { kind: "string", name: "about", label: "About", aiFill: true, placeholder: "Lead or task, e.g. Mohan" },
+    { kind: "string", name: "question", label: "Question", required: true, multiline: true, aiFill: true },
+    { kind: "number", name: "waitMinutes", label: "Remind after (minutes)", default: 60, min: 5, max: 10080 },
+    { kind: "string", name: "label", label: "Shown in memory as", default: "Checker asked", expression: false },
+  ],
+  outputSample: { status: "asked", id: "F7", person: "Ravi", phone: "+91 98000 00001", about: "Mohan", messageId: "3EB0D2F1A9C8B7E6" },
+};
+
+export const followupsRemind: NodeDefinition = {
+  ...action,
+  type: "app.followups.remind",
+  name: "Follow-ups: remind or give up",
+  description:
+    "Run it every hour or so. Questions still waiting past their time get a WhatsApp reminder; after the set number of reminders they're marked \"No reply\" and come out with action = gave_up, so you can tell the owner. No AI needed.",
+  icon: "AlarmClock",
+  app: "google",
+  keywords: ["follow up", "reminder", "chase", "no reply", "supervisor", "check"],
+  fields: [
+    ...followupBase(),
+    { kind: "credential", name: "whatsapp", label: "WhatsApp number", app: "whatsappWeb", required: true },
+    { kind: "number", name: "maxReminders", label: "Reminders before giving up", default: 2, min: 0, max: 10 },
+    { kind: "number", name: "waitMinutes", label: "Minutes between reminders", default: 60, min: 5, max: 10080 },
+    { kind: "string", name: "reminderPrefix", label: "Reminder starts with", default: "Reminder:", expression: false },
+    { kind: "string", name: "label", label: "Shown in memory as", default: "Checker reminded", expression: false },
+  ],
+  outputSample: { action: "reminded", id: "F7", person: "Ravi", phone: "+91 98000 00001", about: "Mohan", question: "Is the quotation for Mohan ready?", askedAt: "26-11-26 14:05", reminders: 1, row: 8 },
+};
+
+export const followupsAnswered: NodeDefinition = {
+  ...action,
+  type: "app.followups.answered",
+  name: "Follow-ups: mark answered",
+  description: "When someone writes in, their questions that are still waiting are marked Answered, with their message as the answer. Put it right after the WhatsApp trigger.",
+  icon: "CheckCheck",
+  app: "google",
+  keywords: ["follow up", "answered", "reply", "done"],
+  fields: [
+    ...followupBase(),
+    { kind: "string", name: "phone", label: "Their phone", default: "${['$input']['from']}" },
+    { kind: "string", name: "answer", label: "Answer", default: "${['$input']['text']}" },
+    {
+      kind: "select",
+      name: "ifMissing",
+      label: "If the tab doesn't exist",
+      default: "empty",
+      options: [
+        { value: "empty", label: "Carry on" },
+        { value: "fail", label: "Stop with an error" },
+      ],
+    },
+  ],
+  outputSample: { marked: 1, about: ["Mohan"] },
+};
+
 export const sheetsAppend: NodeDefinition = {
   ...action,
   type: "app.sheets.append",
@@ -232,6 +346,7 @@ export const sheetsAppend: NodeDefinition = {
       valuePlaceholder: "Value",
       description: "Names must match the sheet's first row. Columns you leave out stay empty.",
     },
+    ...activityFields(),
   ],
   outputSample: { updatedRange: "Sheet1!A5:C5", row: 5, values: { Name: "Ana", Email: "ana@example.com" } },
 };
@@ -519,6 +634,7 @@ export const sheetsUpdate: NodeDefinition = {
         { value: "fail", label: "Stop with an error (safer)" },
       ],
     },
+    ...activityFields(),
   ],
   outputSample: { action: "updated", changed: { Status: { from: "Quoted", to: "Called" } }, row: 7, Name: "Mehta Traders", Phone: "9812345678", Status: "Called" },
 };
@@ -683,6 +799,10 @@ export const APP_ACTION_DEFINITIONS: readonly NodeDefinition[] = [
   gmailSearch,
   tasksAdd,
   tasksDue,
+  sheetsText,
+  followupsAsk,
+  followupsRemind,
+  followupsAnswered,
   driveSave,
   driveFind,
   driveRead,

@@ -72,6 +72,7 @@ export const agentNode: NodeDefinition = {
       options: [
         { value: "none", label: "None: every item is independent" },
         { value: "window", label: "Remember recent turns of a conversation" },
+        { value: "shared", label: "Shared with the whole workspace (same person, any workflow)" },
       ],
     },
     {

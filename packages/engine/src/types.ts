@@ -89,6 +89,13 @@ export interface SeenService {
   filterNew(nodeId: string, keys: string[]): Promise<{ fresh: boolean[]; firstRun: boolean }>;
 }
 
+/**
+ * Pass this as the node id to use the workspace's shared memory for a chat:
+ * every workflow and step talking to the same person reads and adds to it
+ * (e.g. a checker's question, then the assistant that reads the reply).
+ */
+export const SHARED_MEMORY = "__shared";
+
 export interface MemoryService {
   load(nodeId: string, sessionKey: string): Promise<MemoryTurn[]>;
   append(nodeId: string, sessionKey: string, turns: MemoryTurn[], keep: number): Promise<void>;

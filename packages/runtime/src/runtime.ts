@@ -162,7 +162,7 @@ export function createRuntime(
       runCode,
       now: () => new Date(),
       llm: ai.llm,
-      memory: createMemoryService(db, doc.workflowId),
+      memory: createMemoryService(db, doc.workflowId, doc.workspaceId),
       seen: createSeenService(db, doc.workflowId, !doc.isTest),
       executeWorkflow: async ({ workflowId, input, waitForResult }) => {
         if (doc.depth + 1 > opts.maxSubworkflowDepth) {

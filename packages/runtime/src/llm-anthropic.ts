@@ -15,6 +15,8 @@ function toParamBlocks(blocks: LlmBlock[]): Anthropic.Beta.BetaContentBlockParam
       case "tool_result":
         return { type: "tool_result", tool_use_id: b.toolUseId, content: b.content, is_error: b.isError ?? false };
       case "image":
+        if (b.mimetype === "application/pdf") return { type: "document", source: { type: "base64", media_type: "application/pdf", data: b.base64 } };
+        if (!b.mimetype.startsWith("image/")) return { type: "text", text: `[A ${b.mimetype} file was attached, which can't be read here.]` };
         return { type: "image", source: { type: "base64", media_type: b.mimetype as "image/jpeg", data: b.base64 } };
       case "opaque":
         // Thinking / fallback blocks go back exactly as the API returned them.
@@ -43,17 +45,23 @@ function stopReason(r: string | null): LlmResult["stopReason"] {
  * Claude through the official SDK. Credentials come from the environment
  * (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or an `ant auth login` profile).
  */
-export function createAnthropicLlm(opts: { apiKey?: string } = {}): LlmService {
-  const client = new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : {});
+export function createAnthropicLlm(opts: { apiKey?: string; model?: string; client?: Pick<Anthropic, "beta"> } = {}): LlmService {
+  const client = opts.client ?? new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : {});
+  /** ANTHROPIC_MODEL: one model for every AI step (e.g. claude-haiku-5-5 to keep costs down). */
+  const forced = opts.model?.trim() || undefined;
 
   return {
     async chat(req: LlmRequest): Promise<LlmResult> {
-      const fallback = FALLBACK_MODELS.has(req.model);
+      const model = forced ?? req.model;
+      const fallback = FALLBACK_MODELS.has(model);
       const params: Anthropic.Beta.MessageCreateParamsNonStreaming = {
-        model: req.model,
+        model,
         max_tokens: req.maxTokens,
         messages: toMessages(req.messages),
-        ...(req.system ? { system: req.system } : {}),
+        // Prompt caching: the instructions and tools are the same on every message, so mark them
+        // (a read costs about a tenth), and let the API cache the growing conversation too.
+        ...(req.system ? { system: [{ type: "text" as const, text: req.system, cache_control: { type: "ephemeral" as const } }] } : {}),
+        cache_control: { type: "ephemeral" },
         ...(req.tools?.length
           ? {
               tools: req.tools.map((t) => ({
@@ -77,12 +85,16 @@ export function createAnthropicLlm(opts: { apiKey?: string } = {}): LlmService {
           content: fromContent(res.content),
           stopReason: stopReason(res.stop_reason),
           model: res.model,
-          usage: { inputTokens: res.usage.input_tokens, outputTokens: res.usage.output_tokens },
+          usage: {
+            // Cached input still counts as input (it's just cheaper).
+            inputTokens: res.usage.input_tokens + (res.usage.cache_read_input_tokens ?? 0) + (res.usage.cache_creation_input_tokens ?? 0),
+            outputTokens: res.usage.output_tokens,
+          },
         };
       } catch (err) {
         if (err instanceof Anthropic.AuthenticationError) throw new StepError("The AI provider rejected the server's API key");
         if (err instanceof Anthropic.PermissionDeniedError) throw new StepError("The AI provider denied access to this model");
-        if (err instanceof Anthropic.NotFoundError) throw new StepError(`Model "${req.model}" isn't available`);
+        if (err instanceof Anthropic.NotFoundError) throw new StepError(`Model "${model}" isn't available`);
         if (err instanceof Anthropic.RateLimitError) throw new StepError("The AI provider is rate limiting requests. Try again shortly.");
         if (err instanceof Anthropic.BadRequestError) throw new StepError(`The AI provider rejected the request: ${err.message}`);
         if (err instanceof Anthropic.APIError) throw new StepError(`AI request failed (${err.status ?? "network"}): ${err.message}`);
