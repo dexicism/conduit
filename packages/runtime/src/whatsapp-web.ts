@@ -795,7 +795,7 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
     }
   }
 
-  const tick = async () => {
+  const pass = async () => {
     if (stopped) return;
     try {
       await sync();
@@ -805,6 +805,9 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
       console.error("[whatsapp-web] sync failed", (e as Error).message);
     }
   };
+  // One pass at a time: two overlapping passes could both start the same number twice.
+  let queue: Promise<void> = Promise.resolve();
+  const tick = () => (queue = queue.then(pass));
   void ensureWhatsappWebIndexes(db).then(tick);
   timers.push(setInterval(() => void tick(), options.syncMs ?? 3000));
   timers.push(
