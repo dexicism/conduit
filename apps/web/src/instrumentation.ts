@@ -5,7 +5,8 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
-  const mode = process.env.CONDUIT_WORKER ?? (process.env.NODE_ENV === "production" ? "off" : "inprocess");
+  // A local install (CONDUIT_LOCAL=1) is one process for everything, like development.
+  const mode = process.env.CONDUIT_WORKER ?? (process.env.NODE_ENV === "production" && process.env.CONDUIT_LOCAL !== "1" ? "off" : "inprocess");
   if (mode !== "inprocess") return;
   const { bootWorker } = await import("./worker-boot");
   await bootWorker();

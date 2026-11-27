@@ -48,7 +48,8 @@ export interface IntegrationsFromEnv {
 export function integrationsFromEnv(db: Db, opts: { allowPrivateNetwork: boolean }): IntegrationsFromEnv {
   const prod = process.env.NODE_ENV === "production";
   const spec = env("CONDUIT_ENCRYPTION_KEY");
-  if (!spec && prod) {
+  // On a single computer (CONDUIT_LOCAL=1) the key file in .data is fine, as in development.
+  if (!spec && prod && env("CONDUIT_LOCAL") !== "1") {
     throw new Error("Set CONDUIT_ENCRYPTION_KEY (32 random bytes, base64) to store connected accounts");
   }
   const fake = env("CONDUIT_FAKE_APIS_URL");

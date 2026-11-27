@@ -26,7 +26,7 @@ if (Test-Path (Join-Path $data "stopped")) { exit 0 }
 
 # Only one watchdog at a time (a slow start can overlap the next check).
 $lock = Join-Path $data "watchdog.lock"
-if ((Test-Path $lock) -and ((Get-Date) - (Get-Item $lock).LastWriteTime).TotalMinutes -lt 10) { exit 0 }
+if ((Test-Path $lock) -and ((Get-Date) - (Get-Item $lock).LastWriteTime).TotalMinutes -lt 20) { exit 0 }
 Set-Content $lock (Get-Date) -Encoding utf8
 try {
   if (-not (Test-Port 27018)) {
@@ -36,7 +36,8 @@ try {
   }
   if (-not (Test-Port 3000) -and (Test-Port 27018)) {
     Write-Log "App was down: starting it"
-    Start-Process cmd -ArgumentList "/c", "title Conduit app (keep open) && npm run dev >> .data\app.log 2>&1" -WorkingDirectory $root -WindowStyle Minimized
+    # Production build when set up (rebuilt first if the code changed), development mode otherwise.
+    & (Join-Path $PSScriptRoot "run-app.ps1") -Log $log | Out-Null
     if (Wait-Port 3000 180) { Write-Log "App is back" } else { Write-Log "App didn't start within 3 minutes; see .data\app.log" }
   }
 } finally {

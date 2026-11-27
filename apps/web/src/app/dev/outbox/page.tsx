@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { readFile } from "node:fs/promises";
-import { emailMode, env } from "@/lib/env";
+import { emailMode, env, isLocalInstall } from "@/lib/env";
 import { outboxFile, type OutboxEntry } from "@/lib/email";
 
 export const metadata: Metadata = { title: "Local outbox" };
@@ -23,7 +23,7 @@ async function readOutbox(): Promise<OutboxEntry[]> {
 
 /** Development-only inbox for emails sent while no provider is configured. */
 export default async function DevOutboxPage() {
-  if (env.isProd || emailMode !== "dev-outbox") notFound();
+  if ((env.isProd && !isLocalInstall) || emailMode !== "dev-outbox") notFound();
   const entries = await readOutbox();
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">

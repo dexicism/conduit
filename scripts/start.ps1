@@ -76,8 +76,9 @@ if (Test-Port 27018) {
 if (Test-Port 3000) {
   Write-Host "  [ok] App already running"
 } else {
-  Write-Host "  [..] Starting app (first start takes about a minute)"
-  Start-Process cmd -ArgumentList "/k", "title Conduit app (keep open) && npm run dev" -WorkingDirectory $root -WindowStyle Minimized
+  Write-Host "  [..] Starting app (first start takes about a minute; after an update the build takes a few more)"
+  $mode = & (Join-Path $PSScriptRoot "run-app.ps1") | Select-Object -Last 1
+  Write-Host "  [..] Mode: $mode"
   Wait-Port 3000 180 "The app"
 }
 

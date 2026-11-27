@@ -1,6 +1,11 @@
 import "server-only";
 
 const isProd = process.env.NODE_ENV === "production";
+/**
+ * CONDUIT_LOCAL=1: a production build running for one person on their own computer
+ * (listening on 127.0.0.1 only). Sign-in codes then go to the local outbox, as in development.
+ */
+export const isLocalInstall = process.env.CONDUIT_LOCAL === "1";
 // `next build` runs in production mode but must not need runtime secrets.
 const enforce = isProd && process.env.NEXT_PHASE !== "phase-production-build";
 
@@ -50,6 +55,6 @@ export const emailMode: "resend" | "smtp" | "dev-outbox" = env.RESEND_API_KEY
     ? "smtp"
     : "dev-outbox";
 
-if (enforce && emailMode === "dev-outbox") {
+if (enforce && emailMode === "dev-outbox" && !isLocalInstall) {
   throw new Error("Configure RESEND_API_KEY or SMTP_URL: sign-in codes cannot be delivered in production without one");
 }

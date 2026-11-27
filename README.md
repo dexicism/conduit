@@ -48,6 +48,8 @@ Double-click **Start Conduit** (`Start Conduit.cmd` in this folder). It starts O
 
 The local AI (Ollama) is only started when `AI_PROVIDER=ollama`.
 
+**Lighter, production mode on one computer:** put `CONDUIT_LOCAL=1` in `apps/web/.env.local`. Start Conduit and the watchdog then run a production build (about half the memory of development mode, and faster pages). They build it again by themselves when the code has changed, and fall back to development mode if a build fails, so the app always comes up. Sign-in codes still show at http://localhost:3000/dev/outbox, and the encryption key stays in `.data/encryption.key`. Either way, the app only listens on this computer (127.0.0.1): nobody else on your Wi-Fi can open it.
+
 ## Running it by hand
 
 You need Node 22.12 or newer. No Docker: the dev database downloads a real `mongod` the first time.
