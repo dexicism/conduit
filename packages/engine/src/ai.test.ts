@@ -181,6 +181,31 @@ describe("AI Agent", () => {
       { role: "assistant", text: "Great, marked as sent." },
     ]);
   });
+  it("with days of chat kept, sends only the recent exchanges and can search the rest", async () => {
+    const store: MemoryTurn[] = Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? ("assistant" as const) : ("user" as const), text: i === 2 ? "Raghav wants 12 windows at 4500 each" : `chat ${i}`, at: "2026-11-20T10:00:00Z" }));
+    const memory = {
+      load: vi.fn(async () => store),
+      append: vi.fn(async () => {}),
+      search: vi.fn(async (_n: string, _k: string, q: string) => store.filter((t) => q.split(" ").every((w) => t.text.toLowerCase().includes(w.toLowerCase())))),
+    };
+    const g = agentGraph([], { memory: "shared", sessionKey: "${['$input']['chat']}", memoryTurns: 3, memoryKeepDays: 30 });
+    const seen: LlmRequest[] = [];
+    const svc = services((req) => {
+      seen.push(structuredClone(req));
+      if (seen.length === 1) return reply([{ type: "tool_use", id: "s1", name: "search_old_chat", input: { words: "raghav windows" } }], "tool_use");
+      return reply([text("Raghav wanted 12 windows at 4500.")]);
+    }, { memory });
+    const r = await run(g, [{ json: { q: "what did Raghav want?", chat: "9198" } }], svc);
+    expect(r.status).toBe("success");
+    // 3 recent exchanges (6 turns) + the new message, not all 30.
+    expect(seen[0]!.messages).toHaveLength(7);
+    expect(seen[0]!.tools!.map((t) => t.name)).toContain("search_old_chat");
+    const found = seen[1]!.messages.at(-1)!.content[0] as { content: string };
+    expect(JSON.parse(found.content)).toEqual([{ when: "2026-11-20T10:00:00Z", from: "them", text: "Raghav wants 12 windows at 4500 each" }]);
+    // Saved with the days, so the store keeps the whole month.
+    expect(memory.append).toHaveBeenCalledWith("__shared", "9198", expect.any(Array), 3, 30);
+  });
+
   it("uses file steps as tools and keeps file contents out of what the model reads", async () => {
     const g = agentGraph([{ id: "xl", type: "tool.doc.excel", parameters: { toolName: "make_excel", source: "rows", rows: buildAiFill("rows", "The table"), fileName: "leads" } }]);
     const seen: LlmRequest[] = [];

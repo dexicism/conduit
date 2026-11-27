@@ -428,9 +428,13 @@ export const agentExecutor: Executor = async (ctx) => {
     if (remembers && !sessionKey) throw new StepError("Conversation ID is empty, so memory can't be used");
 
     const messages: LlmMessage[] = [];
+    const recentTurns = Math.max(1, Math.floor(toNumber(p.memoryTurns ?? 10, "Turns to remember")));
+    const keepDays = Math.max(0, Math.min(30, Math.floor(toNumber(p.memoryKeepDays ?? 0, "Keep chat for"))));
     if (useMemory) {
-      // Shared memory can hold several messages in a row from us (a checker's question, a reminder): merge them.
-      for (const t of await ctx.services.memory!.load(memoryNode, sessionKey)) {
+      // Only the latest exchanges go to the model (older ones are found with the search tool):
+      // shared memory can hold several messages in a row from us (a checker's question, a reminder): merge them.
+      const stored = await ctx.services.memory!.load(memoryNode, sessionKey);
+      for (const t of stored.slice(-recentTurns * 2)) {
         const last = messages.at(-1);
         if (last?.role === t.role) (last.content[0] as { text: string }).text += `\n\n${t.text}`;
         else messages.push({ role: t.role, content: [{ type: "text", text: t.text }] });
@@ -442,6 +446,21 @@ export const agentExecutor: Executor = async (ctx) => {
 
     // Tools in this turn share one read cache (searching then updating reads a tab once).
     const tools = bindTools({ ...ctx, services: { ...ctx.services, readCache: new Map() } }, item, i, 0);
+    // With days of chat kept, the agent can look further back than what it's sent.
+    if (useMemory && keepDays > 0 && ctx.services.memory!.search) {
+      const search = ctx.services.memory!.search.bind(ctx.services.memory);
+      tools.push({
+        spec: {
+          name: "search_old_chat",
+          description: `Search this person's chat from the last ${keepDays} days for words (e.g. a name, a price, 'meeting'), when they refer to something said earlier that isn't in the recent messages or the sheet. Returns matching messages with when they were said.`,
+          inputSchema: { type: "object", properties: { words: { type: "string", description: "Words that must all appear, e.g. raghav price" } }, required: ["words"], additionalProperties: false },
+        },
+        run: async (args) => {
+          const found = await search(memoryNode, sessionKey, toText(args.words), 15);
+          return found.length ? found.map((t) => ({ when: t.at ?? "earlier", from: t.role === "user" ? "them" : "you", text: t.text })) : { found: false };
+        },
+      });
+    }
     const byName = new Map(tools.map((t) => [t.spec.name, t]));
     let toolCalls = 0;
     let answer: string | null = null;
@@ -496,7 +515,8 @@ export const agentExecutor: Executor = async (ctx) => {
           { role: "user", text: /^[a-f\d]{24}$/i.test(toText(p.image).trim()) ? `${prompt}\n[Attached file, media ID ${toText(p.image).trim()}]` : prompt },
           { role: "assistant", text: answer },
         ],
-        Math.max(1, Math.floor(toNumber(p.memoryTurns ?? 10, "Turns to remember"))),
+        recentTurns,
+        keepDays > 0 ? keepDays : undefined,
       );
     }
     main.push({ json: { output: answer, toolCalls, model } });

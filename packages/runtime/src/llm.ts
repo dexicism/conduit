@@ -55,9 +55,15 @@ interface MemoryDoc {
   workflowId: ObjectId;
   nodeId: string;
   sessionKey: string;
-  turns: MemoryTurn[];
+  turns: Array<{ role: MemoryTurn["role"]; text: string; at?: Date }>;
+  /** Keep everything from this many days (0 = only the last few exchanges). */
+  keepDays?: number;
   updatedAt: Date;
 }
+
+/** Most turns one conversation keeps, whatever the days (a document has to stay small). */
+const MAX_STORED_TURNS = 3000;
+const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
 /**
  * Agent conversation memory, scoped to one workflow; the shared memory
@@ -70,17 +76,35 @@ export function createMemoryService(db: Db, workflowId: ObjectId, workspaceId?: 
   return {
     async load(nodeId, sessionKey) {
       const doc = await col.findOne({ workflowId: scope(nodeId), nodeId, sessionKey: sessionKey.slice(0, 200) });
-      return doc?.turns ?? [];
+      return (doc?.turns ?? []).map((t) => ({ role: t.role, text: t.text, ...(t.at ? { at: t.at.toISOString() } : {}) }));
     },
-    async append(nodeId, sessionKey, turns, keep) {
+    async append(nodeId, sessionKey, turns, keep, keepDays) {
+      const filter = { workflowId: scope(nodeId), nodeId, sessionKey: sessionKey.slice(0, 200) };
+      // A conversation set to keep N days stays that way, even when another step adds a turn with a small `keep`.
+      const days = keepDays ?? (await col.findOne(filter, { projection: { keepDays: 1 } }))?.keepDays ?? 0;
+      const cap = days > 0 ? Math.max(keep * 2, MAX_STORED_TURNS) : keep * 2;
+      const now = new Date();
       await col.updateOne(
-        { workflowId: scope(nodeId), nodeId, sessionKey: sessionKey.slice(0, 200) },
+        filter,
         {
-          $push: { turns: { $each: turns.map((t) => ({ role: t.role, text: t.text.slice(0, 20_000) })), $slice: -keep * 2 } },
-          $set: { updatedAt: new Date() },
+          $push: { turns: { $each: turns.map((t) => ({ role: t.role, text: t.text.slice(0, 20_000), at: now })), $slice: -cap } },
+          $set: { updatedAt: now, ...(keepDays !== undefined ? { keepDays } : {}) },
         },
         { upsert: true },
       );
+      if (days > 0) {
+        // Older than N days: gone (turns saved before times were kept stay until the cap pushes them out).
+        await col.updateOne(filter, { $pull: { turns: { at: { $lt: new Date(now.getTime() - days * 86_400_000) } } } });
+      }
+    },
+    async search(nodeId, sessionKey, query, limit) {
+      const doc = await col.findOne({ workflowId: scope(nodeId), nodeId, sessionKey: sessionKey.slice(0, 200) });
+      const words = norm(query).split(" ").filter((w) => w.length > 1);
+      if (!doc || !words.length) return [];
+      return doc.turns
+        .filter((t) => words.every((w) => norm(t.text).includes(w)))
+        .slice(-limit)
+        .map((t) => ({ role: t.role, text: t.text.slice(0, 1500), ...(t.at ? { at: t.at.toISOString() } : {}) }));
     },
   };
 }

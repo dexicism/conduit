@@ -81,6 +81,8 @@ export interface LlmService {
 export interface MemoryTurn {
   role: "user" | "assistant";
   text: string;
+  /** When it was said (ISO), for turns saved with a time. */
+  at?: string;
 }
 
 /** Conversation memory for agents, scoped by the runtime to the workflow and step. */
@@ -99,7 +101,14 @@ export const SHARED_MEMORY = "__shared";
 
 export interface MemoryService {
   load(nodeId: string, sessionKey: string): Promise<MemoryTurn[]>;
-  append(nodeId: string, sessionKey: string, turns: MemoryTurn[], keep: number): Promise<void>;
+  /**
+   * Adds turns. `keep` = how many exchanges to keep at least. With `keepDays`, the
+   * conversation keeps everything from the last that many days instead (and remembers
+   * that, so later appends with a small `keep` don't cut it short).
+   */
+  append(nodeId: string, sessionKey: string, turns: MemoryTurn[], keep: number, keepDays?: number): Promise<void>;
+  /** Turns of a stored conversation containing all the words of `query`, newest last. */
+  search?(nodeId: string, sessionKey: string, query: string, limit: number): Promise<MemoryTurn[]>;
 }
 
 export interface SqlResult {
