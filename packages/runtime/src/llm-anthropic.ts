@@ -1,7 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { StepError, type LlmBlock, type LlmMessage, type LlmRequest, type LlmResult, type LlmService } from "@conduit/engine";
 
-/** Models whose refusals can be re-run server-side on a fallback model (`fallbacks: "default"`). */
+/** The API takes at most this many tools marked strict in one request. */
+const MAX_STRICT_TOOLS = 20;
+
+/** Model whose refusals can be re-run server-side on a fallback model (`fallbacks: "default"`). */
 const FALLBACK_MODELS = new Set(["claude-opus-5-5", "claude-sonnet-5-5"]);
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
@@ -51,11 +54,20 @@ export function createAnthropicLlm(opts: { apiKey?: string; model?: string; clie
   const client = opts.client ?? new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : {});
   /** ANTHROPIC_MODEL: one model for every AI step (e.g. claude-haiku-5-5 to keep costs down). */
   const forced = opts.model?.trim() || undefined;
+  /**
+   * Tool sets the API turned down as strict. Thinking blocks are signed against the exact
+   * tool definitions, so strict on/off must never change between the steps of one turn:
+   * once a set is refused, it's sent without strict from then on.
+   */
+  const notStrict = new Set<string>();
 
   return {
     async chat(req: LlmRequest): Promise<LlmResult> {
       const model = forced ?? req.model;
       const fallback = FALLBACK_MODELS.has(model);
+      const toolKey = req.tools?.map((t) => t.name).join("|") ?? "";
+      // Decided once per tool set, the same on every step: over the limit, or refused before, means no strict.
+      const strictOk = Boolean(req.tools?.length) && req.tools!.length <= MAX_STRICT_TOOLS && !notStrict.has(toolKey);
       const params: Anthropic.Beta.MessageCreateParamsNonStreaming = {
         model,
         max_tokens: req.maxTokens,
@@ -70,7 +82,7 @@ export function createAnthropicLlm(opts: { apiKey?: string; model?: string; clie
                 name: t.name,
                 description: t.description,
                 input_schema: t.inputSchema as Anthropic.Beta.BetaTool.InputSchema,
-                strict: t.strict ?? true,
+                strict: strictOk ? (t.strict ?? true) : false,
               })),
             }
           : {}),
@@ -88,8 +100,9 @@ export function createAnthropicLlm(opts: { apiKey?: string; model?: string; clie
         } catch (err) {
           // Strict tool schemas have limits (count, size); if the API turns them down, send the same request without strict.
           const e = err as { status?: number; message?: string };
-          if (e.status === 400 && params.tools?.length && /strict|schema|grammar|too (many|complex|large)/i.test(e.message ?? "")) {
-            console.warn(`[ai] Claude rejected the strict tool schemas (${e.message}); trying again without strict`);
+          if (e.status === 400 && strictOk && params.tools?.length && /strict|schema|grammar|too (many|complex|large)/i.test(e.message ?? "")) {
+            console.warn(`[ai] Claude rejected the strict tool schemas (${e.message}); these tools are sent without strict from now on`);
+            notStrict.add(toolKey);
             res = await client.beta.messages.create({ ...params, tools: params.tools.map((t) => ({ ...t, strict: false })) as typeof params.tools });
           } else throw err;
         }

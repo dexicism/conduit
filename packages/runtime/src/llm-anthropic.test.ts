@@ -50,7 +50,18 @@ describe("Claude", () => {
     expect(g.sent[0]!.model).toBe("claude-sonnet-5-5");
   });
 
-  it("sends the request again without strict tools if the API turns the strict schemas down", async () => {
+  it("never sends more than 20 strict tools, and keeps the choice the same on every step", async () => {
+    const f = fakeClient();
+    const llm = createAnthropicLlm({ client: f.client });
+    const many = Array.from({ length: 23 }, (_, i) => ({ name: `t${i}`, description: "x", inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false } }));
+    await llm.chat(ask({ tools: many }));
+    await llm.chat(ask({ tools: many }));
+    expect(f.sent.map((p) => p.tools.every((t: { strict: boolean }) => t.strict === false))).toEqual([true, true]);
+    await llm.chat(ask({ tools: many.slice(0, 20) }));
+    expect(f.sent[2]!.tools.every((t: { strict: boolean }) => t.strict === true)).toBe(true);
+  });
+
+  it("sends the request again without strict tools if the API turns the strict schemas down, and keeps it that way", async () => {
     const sent: Array<Record<string, any>> = [];
     const client = {
       beta: {
@@ -68,6 +79,9 @@ describe("Claude", () => {
     const r = await llm.chat(ask({ tools }));
     expect(r.content).toEqual([{ type: "text", text: "ok" }]);
     expect(sent.map((p) => p.tools[0].strict)).toEqual([true, false]);
+    // The next step of the same conversation goes straight out without strict (thinking blocks are signed against the tools).
+    await llm.chat(ask({ tools }));
+    expect(sent.map((p) => p.tools[0].strict)).toEqual([true, false, false]);
   });
 
   it("sends PDFs as documents and says when a file can't be read", async () => {
