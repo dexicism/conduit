@@ -161,6 +161,7 @@ export function toJid(to: string, countryCode?: string | null): string {
     if (digits.startsWith("00")) digits = digits.slice(2);
     else if (digits.startsWith("0") || (digits.length >= 6 && digits.length <= 10)) {
       const cc = (countryCode ?? "").replace(/\D/g, "");
+      if (cc.length > 4) throw new Error(`The WhatsApp connection's Country code is ${cc}, which looks like a phone number. It should be just the code, like 91: fix it under Connected apps, Update keys.`);
       if (!cc) throw new Error(`"${to}" has no country code. Write it like +919876543210, or set "Country code" on this WhatsApp connection.`);
       digits = cc + digits.replace(/^0+/, "");
     }

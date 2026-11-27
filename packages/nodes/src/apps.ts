@@ -12,6 +12,8 @@ export interface AppField {
   placeholder?: string;
   description?: string;
   options?: ReadonlyArray<{ value: string; label: string }>;
+  /** A format the value must have, with the message shown when it doesn't. */
+  pattern?: { regex: string; message: string };
 }
 
 export type AppAuth =
@@ -70,7 +72,8 @@ export const APP_DEFINITIONS: readonly AppDefinition[] = [
           kind: "string",
           default: "91",
           placeholder: "91",
-          description: "Added in front of numbers written without one, like 9812345678 in a sheet. 91 is India.",
+          description: "Just the code, not a phone number: 91 for India. It's added in front of numbers written without one, like 9812345678 in a sheet.",
+          pattern: { regex: "^\\+?\\d{1,4}$", message: "Country code is just the code, like 91 (not a phone number)" },
         },
       ],
     },
@@ -283,6 +286,7 @@ export function validateAppFields(app: AppDefinition, data: Record<string, unkno
     if (v.length > 4000) errors[f.name] = `${f.label} is too long`;
     else if (f.kind === "number" && !/^\d{1,5}$/.test(v)) errors[f.name] = `${f.label} must be a whole number`;
     else if (f.kind === "select" && !f.options?.some((o) => o.value === v)) errors[f.name] = `Choose a valid ${f.label.toLowerCase()}`;
+    else if (f.pattern && !new RegExp(f.pattern.regex).test(v)) errors[f.name] = f.pattern.message;
     values[f.name] = v;
   }
   return { values, errors };
