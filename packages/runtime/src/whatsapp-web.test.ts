@@ -80,6 +80,9 @@ class FakeSocket extends EventEmitter {
   async downloadMedia() {
     return Buffer.from("fake-jpeg-bytes");
   }
+  async phoneForLid(lid: string) {
+    return lid === "88800011122@lid" ? "919811112222@s.whatsapp.net" : null;
+  }
   async logout() {
     this.loggedOut = true;
   }
@@ -383,6 +386,65 @@ describe("only people in a sheet tab", () => {
     } finally {
       await wa.stop();
       server.close();
+    }
+  }, 120_000);
+});
+
+describe("groups", () => {
+  it("answers in a group when called by name, @mentioned or replied to, finds hidden numbers, and ignores the rest", async () => {
+    const ws = new ObjectId();
+    const cred = (await integ.create({ workspaceId: ws, userId, app: "whatsappWeb", label: "Group bot", values: {} }))._id.toHexString();
+    const sockets: FakeSocket[] = [];
+    const wa = startWhatsappWeb(db, rt, {
+      authRoot,
+      syncMs: 60_000,
+      outboxMs: 20,
+      typingDelayMs: [0, 0],
+      socketFactory: async (dir) => {
+        await writeFile(join(dir, "creds.json"), "{}");
+        const s = new FakeSocket();
+        if (dir.endsWith(cred)) sockets.push(s); // other tests' phones can be opened too: only count ours
+        return s as unknown as WaSocket;
+      },
+    });
+    try {
+      await requestWhatsappWebLink(db, ws, cred);
+      await wa.tick();
+      await until(() => sockets.length === 1);
+      sockets[0]!.emit("connection.update", { connection: "open" });
+      await until(async () => (await whatsappWebStatus(db, ws, cred)).status === "open");
+      const wf = new ObjectId();
+      await db.collection("workflows").insertOne({
+        _id: wf,
+        workspaceId: ws,
+        name: "group helper",
+        revision: 1,
+        draft: graph([{ id: "wa", type: "trigger.whatsappWeb", parameters: { credential: cred, chats: "all", groupMode: "mentioned", groupNames: "Foxy" } }]),
+        publishedVersionId: null,
+        archivedAt: null,
+      });
+      await createTriggerService(db, client).publish(ws, wf, userId);
+      const group = "120363000000000001@g.us";
+      const inGroup = (id: string, text: string, extra: Record<string, unknown> = {}, message?: Record<string, unknown>) =>
+        msg({ id, text, message, key: { remoteJid: group, remoteJidAlt: undefined, participant: "77700011122@lid", participantAlt: "919812345678@s.whatsapp.net", ...extra } });
+      sockets[0]!.emit("messages.upsert", {
+        type: "notify",
+        messages: [
+          inGroup("G1", "lunch kab hai?"), // not for the bot
+          inGroup("G2", "Foxy, Raghav ka status?"), // called by name
+          inGroup("G3", "info pls", {}, { extendedTextMessage: { text: "@bot info pls", contextInfo: { mentionedJid: ["919900011122@s.whatsapp.net"] } } }), // @mention
+          inGroup("G4", "foxy kal ka plan?", { participant: "88800011122@lid", participantAlt: undefined }), // hidden number, looked up
+          inGroup("G5", "firefoxy is a browser"), // not the name on its own
+        ],
+      });
+      await until(async () => (await rt.collections.executions.countDocuments({ workflowId: wf })) === 3);
+      await new Promise((r) => setTimeout(r, 300));
+      const runs = (await rt.collections.executions.find({ workflowId: wf }).toArray()).map((e) => e.triggerItems[0]!.json as { messageId: string; from: string | null; isGroup: boolean });
+      expect(runs.map((r) => r.messageId).sort()).toEqual(["G2", "G3", "G4"]);
+      expect(runs.find((r) => r.messageId === "G4")!.from).toBe("919811112222");
+      expect(runs.every((r) => r.isGroup)).toBe(true);
+    } finally {
+      await wa.stop();
     }
   }, 120_000);
 });

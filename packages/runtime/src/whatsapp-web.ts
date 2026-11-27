@@ -49,6 +49,8 @@ export interface WaSocket {
   groupMetadata(jid: string): Promise<{ id: string; subject: string; participants: Array<{ id: string }> }>;
   groupFetchAllParticipating(): Promise<Record<string, { id: string; subject: string; participants: Array<{ id: string }> }>>;
   downloadMedia(msg: WaMessage): Promise<Buffer>;
+  /** The phone number behind a hidden id (…@lid), when WhatsApp has told us. */
+  phoneForLid?(lid: string): Promise<string | null>;
   logout(): Promise<void>;
   end(err?: Error): void;
 }
@@ -89,6 +91,14 @@ export const baileysSocketFactory: WaSocketFactory = async (authDir) => {
   const s = sock as unknown as WaSocket;
   s.downloadMedia = async (msg) =>
     (await b.downloadMediaMessage(msg as never, "buffer", {}, { logger: silentLogger as never, reuploadRequest: sock.updateMediaMessage })) as Buffer;
+  s.phoneForLid = async (lid) => {
+    try {
+      const pn = await (sock as unknown as { signalRepository?: { lidMapping?: { getPNForLID(l: string): Promise<string | null> } } }).signalRepository?.lidMapping?.getPNForLID(lid);
+      return pn ?? null;
+    } catch {
+      return null;
+    }
+  };
   return s;
 };
 
@@ -660,10 +670,22 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
     if ((chats === "private" && isGroup) || (chats === "groups" && !isGroup)) return;
     if (selfChat && !p.selfChat) return;
     const ctx = contextInfo(content);
-    const mentionsMe = ((ctx?.mentionedJid ?? []) as string[]).some((j) => mine.includes(userPart(j))) || mine.includes(userPart(ctx?.participant));
+    // In a group: an @mention, a reply to one of our messages, or the bot's name in the text ("Foxy, ...").
+    const names = String(p.groupNames ?? "")
+      .split(",")
+      .map((n) => n.trim().toLowerCase())
+      .filter((n) => n.length >= 2);
+    const said = (messageText(content) ?? "").toLowerCase();
+    const named = names.some((n) => new RegExp(`(^|[^a-z0-9])${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`, "i").test(said));
+    const mentionsMe = ((ctx?.mentionedJid ?? []) as string[]).some((j) => mine.includes(userPart(j))) || mine.includes(userPart(ctx?.participant)) || named;
     if (isGroup && p.groupMode === "mentioned" && !mentionsMe) return;
 
-    const from = selfChat ? (phoneOf(sock.user?.id) ?? userPart(sock.user?.id)) : isGroup ? phoneOf(key.participant, key.participantAlt) : phoneOf(key.remoteJid, key.remoteJidAlt);
+    let from = selfChat ? (phoneOf(sock.user?.id) ?? userPart(sock.user?.id)) : isGroup ? phoneOf(key.participant, key.participantAlt) : phoneOf(key.remoteJid, key.remoteJidAlt);
+    // WhatsApp often hides numbers behind an id (…@lid): ask it for the real number.
+    if (!from && sock.phoneForLid) {
+      const lid = isGroup ? key.participant : key.remoteJid;
+      if (lid?.endsWith("@lid")) from = phoneOf(await sock.phoneForLid(lid));
+    }
     const allowed = String(p.allowedNumbers ?? "")
       .split(/[\s,;]+/)
       .map((n) => n.replace(/\D/g, ""))

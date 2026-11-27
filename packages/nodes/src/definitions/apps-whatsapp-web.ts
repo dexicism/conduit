@@ -55,6 +55,15 @@ export const whatsappWebTrigger: NodeDefinition = {
     },
     {
       kind: "string",
+      name: "groupNames",
+      label: "Also answer when the message says",
+      expression: false,
+      placeholder: "Foxy",
+      showIf: { field: "groupMode", equals: ["mentioned"] },
+      description: "Names (comma separated) that count as calling it in a group, e.g. 'Foxy, what's due today?'.",
+    },
+    {
+      kind: "string",
       name: "allowedNumbers",
       label: "Only these numbers",
       multiline: true,
