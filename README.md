@@ -83,7 +83,7 @@ A few things I found:
 
 - `ANTHROPIC_MODEL=claude-haiku-5-5` runs every AI step on Haiku, whatever model a step asks for. Without it, steps use the model picked in the step (the default is Opus, which costs far more).
 - Prompt caching is on: the instructions and tool list are the same on every message, so after the first one they cost about a tenth. Only the date goes into the instructions (the time goes with each message), so the cache lasts all day.
-- Claude reads photos and PDFs. It can't listen to voice notes; if `GEMINI_API_KEY` is set too, Gemini writes each voice note out first and Claude gets the text.
+- Claude reads photos and PDFs. It can't listen to voice notes, so something writes each one out first and Claude gets the text: Whisper on Groq if `GROQ_API_KEY` is set (free plan at [console.groq.com](https://console.groq.com), far more voice notes a day than Gemini's free tier), otherwise or as a backup Gemini if `GEMINI_API_KEY` is set. `GROQ_WHISPER_MODEL` picks the Whisper model (default `whisper-large-v3-turbo`).
 - `npx tsx --env-file=apps/web/.env.local scripts/try-claude.mts` checks your key: an answer, a tool call, and that the cache is used (three tiny requests).
 
 With Gemini, `GEMINI_FALLBACK_MODELS` (default `gemini-2.5-flash-lite`) is tried when the main model is busy or out of free requests; a model that said its quota is used up is skipped for as long as Google says.

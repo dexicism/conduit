@@ -1,7 +1,8 @@
 import type { LlmRequest, LlmService } from "@conduit/engine";
 import { describe, expect, it } from "vitest";
 import { createAnthropicLlm } from "./llm-anthropic";
-import { withVoiceNotes } from "./llm";
+import { llmFromEnv, withVoiceNotes } from "./llm";
+import { createGroqTranscriber } from "./transcribe-groq";
 
 /** A pretend Anthropic client that records what it was sent. */
 function fakeClient() {
@@ -121,5 +122,31 @@ describe("Claude", () => {
     expect(seen[0]!.messages[0]!.content[0]).toEqual({ type: "text", text: "[Voice note] Mohan ka quotation bhej do" });
     await withVoiceNotes(main, null).chat(ask({ messages: [voice] }));
     expect((seen[2]!.messages[0]!.content[0] as { text: string }).text).toMatch(/couldn't be listened to/);
+  });
+
+  it("writes voice notes out with Whisper on Groq, and falls back to the next listener when it fails", async () => {
+    const calls: Array<{ url: string; auth: string; model: string; file: File }> = [];
+    let fail = false;
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      const form = init.body as FormData;
+      calls.push({ url, auth: String((init.headers as Record<string, string>).authorization), model: String(form.get("model")), file: form.get("file") as File });
+      if (fail) return new Response(JSON.stringify({ error: { message: "Rate limit reached" } }), { status: 429 });
+      return new Response(JSON.stringify({ text: " Kiran ko kal call karna hai " }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const groq = createGroqTranscriber({ apiKey: "gsk_test", fetch: fakeFetch });
+    expect(await groq({ base64: Buffer.from("OggS-voice").toString("base64"), mimetype: "audio/ogg; codecs=opus" })).toBe("Kiran ko kal call karna hai");
+    expect(calls[0]).toMatchObject({ url: "https://api.groq.com/openai/v1/audio/transcriptions", auth: "Bearer gsk_test", model: "whisper-large-v3-turbo" });
+    expect(calls[0]!.file.name).toBe("voice-note.ogg");
+    expect(Buffer.from(await calls[0]!.file.arrayBuffer()).toString()).toBe("OggS-voice");
+
+    const seen: LlmRequest[] = [];
+    const main: LlmService = { chat: async (r) => (seen.push(r), { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", model: "m", usage: { inputTokens: 1, outputTokens: 1 } }) };
+    const backup = async () => "Vikas ka order";
+    fail = true;
+    await withVoiceNotes(main, [groq, backup]).chat(ask({ messages: [{ role: "user", content: [{ type: "image", mimetype: "audio/ogg", base64: "T2dnUwAD".repeat(20) }] }] }));
+    expect(seen[0]!.messages[0]!.content[0]).toEqual({ type: "text", text: "[Voice note] Vikas ka order" });
+
+    // GROQ_API_KEY alone is enough to hear voice notes with Claude.
+    expect(llmFromEnv({ AI_PROVIDER: "anthropic", ANTHROPIC_API_KEY: "sk-ant-test", GROQ_API_KEY: "gsk_test" } as NodeJS.ProcessEnv).provider).toBe("anthropic");
   });
 });

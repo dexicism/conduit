@@ -21,3 +21,4 @@ export * from "./variables";
 export * from "./whatsapp-web";
 export * from "./backup";
 export * from "./ai-usage";
+export { createGroqTranscriber, type Transcriber } from "./transcribe-groq";

@@ -4,6 +4,7 @@ import { createAnthropicLlm } from "./llm-anthropic";
 import { createFakeLlm } from "./llm-fake";
 import { createGeminiLlm } from "./llm-gemini";
 import { createOllamaLlm } from "./llm-ollama";
+import { createGroqTranscriber, type Transcriber } from "./transcribe-groq";
 
 export type LlmProviderName = "anthropic" | "gemini" | "ollama" | "fake" | "none";
 
@@ -43,9 +44,12 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): { provider: Ll
   }
   if (choice === "anthropic" || env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN) {
     const claude = createAnthropicLlm({ model: env.ANTHROPIC_MODEL });
-    // Claude can't listen to voice notes: with a Gemini key too, Gemini writes them out first.
+    // Claude can't listen to voice notes. Something else writes them out first:
+    // Whisper on Groq (GROQ_API_KEY), then Gemini (GEMINI_API_KEY) if Groq fails or is out of requests.
+    const ears: Transcriber[] = [];
+    if (env.GROQ_API_KEY?.trim()) ears.push(createGroqTranscriber({ apiKey: env.GROQ_API_KEY.trim(), model: env.GROQ_WHISPER_MODEL }));
     const geminiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-    const ears = geminiKey ? createGeminiLlm({ apiKey: geminiKey, model: env.GEMINI_MODEL }) : null;
+    if (geminiKey) ears.push(llmListener(createGeminiLlm({ apiKey: geminiKey, model: env.GEMINI_MODEL })));
     return { provider: "anthropic", llm: withVoiceNotes(claude, ears) };
   }
   return { provider: "none" };
@@ -117,12 +121,27 @@ export async function ensureMemoryIndexes(db: Db): Promise<void> {
   ]);
 }
 
+/** A model that can listen (like Gemini) used as a voice-note transcriber. */
+export function llmListener(model: LlmService): Transcriber {
+  return async (audio) => {
+    const r = await model.chat({
+      model: "",
+      effort: "low",
+      maxTokens: 2000,
+      system: "Write out this voice note exactly as spoken, in the language spoken (Hindi in Latin letters is fine). Only the words, nothing else.",
+      messages: [{ role: "user", content: [{ type: "image", mimetype: audio.mimetype, base64: audio.base64 }, { type: "text", text: "Transcribe this voice note." }] }],
+    });
+    return r.content.filter((x): x is { type: "text"; text: string } => x.type === "text").map((x) => x.text).join("").trim();
+  };
+}
+
 /**
- * Turns voice notes into text before the main model sees them: `ears` (a model
- * that can listen, like Gemini) writes each one out. Without one, the model is
- * told a voice note was sent that it can't hear.
+ * Turns voice notes into text before the main model sees them: the first of
+ * `ears` that works writes each one out (a model that can listen also works).
+ * Without any, the model is told a voice note was sent that it can't hear.
  */
-export function withVoiceNotes(main: LlmService, ears: LlmService | null): LlmService {
+export function withVoiceNotes(main: LlmService, ears: Transcriber[] | LlmService | null): LlmService {
+  const listeners: Transcriber[] = !ears ? [] : Array.isArray(ears) ? ears : [llmListener(ears)];
   const done = new Map<string, string>();
   return {
     async chat(req) {
@@ -135,19 +154,13 @@ export function withVoiceNotes(main: LlmService, ears: LlmService | null): LlmSe
               const key = `${b.base64.length}:${b.base64.slice(0, 64)}:${b.base64.slice(-64)}`;
               let text = done.get(key);
               if (text === undefined) {
-                if (!ears) text = "";
-                else {
+                text = "";
+                for (const listen of listeners) {
                   try {
-                    const r = await ears.chat({
-                      model: "",
-                      effort: "low",
-                      maxTokens: 2000,
-                      system: "Write out this voice note exactly as spoken, in the language spoken (Hindi in Latin letters is fine). Only the words, nothing else.",
-                      messages: [{ role: "user", content: [b, { type: "text", text: "Transcribe this voice note." }] }],
-                    });
-                    text = r.content.filter((x): x is { type: "text"; text: string } => x.type === "text").map((x) => x.text).join("").trim();
+                    text = await listen({ base64: b.base64, mimetype: b.mimetype });
+                    if (text) break;
                   } catch {
-                    text = "";
+                    // try the next one
                   }
                 }
                 if (text) done.set(key, text);
