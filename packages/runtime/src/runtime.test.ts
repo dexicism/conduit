@@ -23,6 +23,10 @@ beforeAll(async () => {
   await client.connect();
   db = client.db("runtime_test");
   server = createServer((req, res) => {
+    if (req.url?.startsWith("/slow")) {
+      setTimeout(() => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ at: Date.now() })), 400);
+      return;
+    }
     if (req.url?.startsWith("/redirect")) {
       res.writeHead(302, { location: "/json" }).end();
       return;
@@ -221,6 +225,36 @@ describe("runtime", () => {
       const canceled = await createExecutionQueries(db).cancel(ws, id2.toHexString());
       expect(canceled!.status).toBe("canceled");
       expect(await rt.collections.jobs.countDocuments({ executionId: id2 })).toBe(0);
+    } finally {
+      await worker.stop();
+    }
+  }, 30_000);
+
+  it("runs with the same queue key one at a time, oldest first; others don't wait", async () => {
+    const g = graph([
+      { id: "t", type: "trigger.manual", to: { main: ["h"] } },
+      { id: "h", type: "core.http", parameters: { url: `${base}/slow` } },
+    ]);
+    const wfId = await insertWorkflow(ws, "Chat", g);
+    const start = (queueKey?: string) =>
+      rt.createExecution({ workspaceId: ws, workflowId: wfId, workflowName: "Chat", versionId: null, mode: "production", graph: g, triggerNodeId: "t", triggerItems: [{ json: {} }], ...(queueKey ? { queueKey } : {}) }, true);
+    const same = [await start("chat-1"), await start("chat-1"), await start("chat-1")];
+    const other = await start("chat-2");
+    const worker = rt.startWorker({ pollMs: 20 });
+    try {
+      const doc = (x: ObjectId) => rt.collections.executions.findOne({ _id: x });
+      await expect.poll(async () => (await Promise.all([...same, other].map(doc))).every((e) => e!.status === "success"), { timeout: 15_000 }).toBe(true);
+      // Each one started after the one before had finished.
+      const spans = await Promise.all(
+        same.map(async (x) => {
+          const steps = await rt.collections.steps.find({ executionId: x }).sort({ index: 1 }).toArray();
+          return { from: +steps[0]!.startedAt, to: +steps[steps.length - 1]!.startedAt + (steps[steps.length - 1]!.durationMs ?? 0) };
+        }),
+      );
+      for (let i = 1; i < spans.length; i++) expect(spans[i]!.from).toBeGreaterThanOrEqual(spans[i - 1]!.to);
+      // The other chat didn't wait for the queue: it finished before the third one started.
+      const o = await rt.collections.steps.find({ executionId: other }).sort({ index: 1 }).toArray();
+      expect(+o[0]!.startedAt).toBeLessThan(spans[2]!.from);
     } finally {
       await worker.stop();
     }

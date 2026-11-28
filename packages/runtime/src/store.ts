@@ -26,6 +26,11 @@ export interface ExecutionDoc {
   durationMs: number | null;
   resumeAt: Date | null;
   expiresAt: Date;
+  /**
+   * Runs with the same key go one at a time, oldest first (e.g. the messages
+   * one person sends in one chat), so each run sees what the one before did.
+   */
+  queueKey?: string;
 }
 
 export interface StepDoc {
@@ -113,6 +118,7 @@ export async function ensureRuntimeIndexes(db: Db): Promise<void> {
     // Failed-runs list on the home page and the status filter on Runs.
     c.executions.createIndex({ workspaceId: 1, status: 1, startedAt: -1 }),
     c.executions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    c.executions.createIndex({ queueKey: 1, _id: 1 }, { partialFilterExpression: { queueKey: { $exists: true } } }),
     c.steps.createIndex({ executionId: 1, index: 1 }),
     c.steps.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     c.jobs.createIndex({ status: 1, runAt: 1 }),

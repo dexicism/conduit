@@ -442,7 +442,11 @@ export const agentExecutor: Executor = async (ctx) => {
       if (messages[0]?.role === "assistant") messages.unshift({ role: "user", content: [{ type: "text", text: "(Earlier in this chat)" }] });
       if (messages.at(-1)?.role === "user") messages.push({ role: "assistant", content: [{ type: "text", text: "(No reply was sent.)" }] });
     }
-    messages.push({ role: "user", content: [...(await imageBlocks(ctx, p)), { type: "text", text: `[${timeNow(ctx.services.now())}] ${prompt}` }] });
+    // The file's media ID goes with the message, so tools can use it now (forward it, put photos in a PDF).
+    const attached = await imageBlocks(ctx, p);
+    const mediaId = /^[a-f\d]{24}$/i.test(toText(p.image).trim()) ? toText(p.image).trim() : "";
+    const fileNote = mediaId ? `\n[Attached file, media ID ${mediaId}${attached.length ? "" : ": a video, sticker or other file you can't open, but you can forward it"}]` : "";
+    messages.push({ role: "user", content: [...attached, { type: "text", text: `[${timeNow(ctx.services.now())}] ${prompt}${fileNote}` }] });
 
     // Tools in this turn share one read cache (searching then updating reads a tab once).
     const tools = bindTools({ ...ctx, services: { ...ctx.services, readCache: new Map() } }, item, i, 0);

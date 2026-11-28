@@ -36,6 +36,8 @@ export const DEFAULT_RUNTIME_OPTIONS: RuntimeOptions = {
 };
 
 const LEASE_MS = 5 * 60_000;
+/** How long an older run with the same queue key can hold the next one back. */
+const QUEUE_WAIT_MS = 10 * 60_000;
 
 export interface StartInput {
   workspaceId: ObjectId;
@@ -49,6 +51,8 @@ export interface StartInput {
   depth?: number;
   parentExecutionId?: ObjectId | null;
   isTest?: boolean;
+  /** Runs with the same key go one at a time, oldest first. */
+  queueKey?: string;
 }
 
 /** Sample payload for triggers that are started by hand in the editor. */
@@ -124,6 +128,7 @@ export function createRuntime(
       durationMs: null,
       resumeAt: null,
       expiresAt: expiry(),
+      ...(input.queueKey ? { queueKey: input.queueKey } : {}),
     };
     await c.executions.insertOne(doc);
     if (enqueue) await enqueueJob(doc._id, doc.workspaceId, now);
@@ -344,6 +349,19 @@ export function createRuntime(
     if (running >= limit) {
       await c.jobs.updateOne({ _id: job._id }, { $set: { status: "queued", lockedUntil: null, runAt: new Date(Date.now() + 1000) } });
       return;
+    }
+    // One at a time per queue key: wait while an older run with the same key is queued or running.
+    // (Runs older than QUEUE_WAIT_MS don't hold others up, so a stuck one can't block a chat for good.)
+    const mine = await c.executions.findOne({ _id: job.executionId }, { projection: { queueKey: 1, status: 1 } });
+    if (mine?.queueKey && mine.status === "queued") {
+      const ahead = await c.executions.findOne(
+        { queueKey: mine.queueKey, _id: { $lt: job.executionId }, status: { $in: ["queued", "running"] }, startedAt: { $gt: new Date(Date.now() - QUEUE_WAIT_MS) } },
+        { projection: { _id: 1 } },
+      );
+      if (ahead) {
+        await c.jobs.updateOne({ _id: job._id }, { $set: { status: "queued", lockedUntil: null, runAt: new Date(Date.now() + 700) } });
+        return;
+      }
     }
     try {
       const exec = await c.executions.findOne({ _id: job.executionId }, { projection: { status: 1 } });

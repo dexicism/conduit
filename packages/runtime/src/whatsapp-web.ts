@@ -777,6 +777,8 @@ export function startWhatsappWeb(db: Db, runtime: Pick<Runtime, "createExecution
       graph,
       triggerNodeId: t.nodeId,
       triggerItems: [{ json: { ...item } }],
+      // One person's messages in one chat are answered in order, each knowing the last (a photo right after "add this").
+      queueKey: `whatsapp:${t.workflowId.toHexString()}:${item.chatId}:${item.from ?? userPart(key.participant ?? key.remoteJid)}`,
     };
     try {
       await runtime.createExecution(input, true);
