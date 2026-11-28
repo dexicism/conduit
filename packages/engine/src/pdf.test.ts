@@ -27,6 +27,22 @@ describe("PDF documents", () => {
     expect(tableOf([{ Name: "Ravi" }]).total).toBeNull();
   });
 
+  it("makes a whole list (like a sheet tab) as a landscape table: no totals, header on every page", async () => {
+    const cols = ["Name", "Designation", "Mobile number", "Architect", "House number", "Sector", "Address", "Remarks", "Qualified", "Quoted"];
+    const rows = Array.from({ length: 120 }, (_, i) => Object.fromEntries(cols.map((c) => [c, c === "Mobile number" ? `98000001${String(i).padStart(2, "0")}` : `${c} ${i}`])));
+    rows[0]!.Qty = "2";
+    rows[0]!.Price = "100";
+    const r = await buildPdf({ title: "Scanning Data", rows, list: true });
+    expect(r.total).toBeNull();
+    expect(r.pages).toBeGreaterThan(2);
+    const doc = await PDFDocument.load(Buffer.from(r.base64, "base64"));
+    const { width, height } = doc.getPage(0).getSize();
+    expect(width).toBeGreaterThan(height);
+    // A short list with few columns stays upright.
+    const small = await PDFDocument.load(Buffer.from((await buildPdf({ title: "Two", rows: [{ Name: "Mohan", Phone: "9800000101" }], list: true })).base64, "base64"));
+    expect(small.getPage(0).getSize().height).toBeGreaterThan(small.getPage(0).getSize().width);
+  });
+
   it("swaps characters the PDF fonts can't draw", () => {
     const r = new Set<string>();
     expect(pdfSafe("₹500 – “ok” …", r)).toBe('Rs. 500 - "ok" ...');

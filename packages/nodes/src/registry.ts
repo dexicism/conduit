@@ -1,4 +1,4 @@
-import { collectReferences, hasReferences, INPUT_SOURCE, VARS_SOURCE, type WorkflowGraph, type WorkflowNode } from "@conduit/core";
+import { collectReferences, hasReferences, parseAiFills, INPUT_SOURCE, VARS_SOURCE, type WorkflowGraph, type WorkflowNode } from "@conduit/core";
 import { codeNode, executeWorkflowNode, httpRequestNode, respondNode, setFieldsNode } from "./definitions/core";
 import { filterNode, ifNode, loopNode, mergeNode, onlyNewNode, switchNode, waitNode } from "./definitions/flow";
 import { cryptoNode, dateNode, jsonNode, listNode, mathNode, textNode } from "./definitions/transform";
@@ -266,6 +266,8 @@ function validateField(field: ParamField, value: unknown): string | null {
     }
     case "select":
       if (isBlank(value)) return field.required ? `${field.label} is required` : null;
+      // In an agent tool, the AI can pick the option when it calls the tool.
+      if (field.aiFill && typeof value === "string" && parseAiFills(value).length) return null;
       return field.options.some((o) => o.value === value) ? null : `Choose a valid ${field.label.toLowerCase()}`;
     case "json": {
       if (isBlank(value)) return field.required ? `${field.label} is required` : null;

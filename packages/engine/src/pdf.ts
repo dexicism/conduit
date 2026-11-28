@@ -22,6 +22,12 @@ export interface DocInput {
   /** Currency label for money columns and the total, e.g. "Rs." or "$". */
   currency?: string;
   notes?: string;
+  /**
+   * A plain list (e.g. a whole sheet tab): no Amount column, totals or money
+   * formatting; columns sized to their content, landscape when wide, and the
+   * header repeated on every page.
+   */
+  list?: boolean;
 }
 
 export interface DocResult {
@@ -93,6 +99,13 @@ function wrap(text: string, font: PDFFont, size: number, width: number): string[
   return out;
 }
 
+/** A plain list: the columns as they are, nothing added or totalled. */
+function listOf(rows: Array<Record<string, unknown>>) {
+  const header: string[] = [];
+  for (const r of rows) for (const k of Object.keys(r)) if (!header.includes(k)) header.push(k);
+  return { header, body: rows.map((r) => header.map((k) => r[k])), moneyCols: new Set<number>(), total: null as number | null };
+}
+
 /** Normalises table rows; adds an Amount column when rows have a quantity and a price. */
 export function tableOf(rows: Array<Record<string, unknown>>) {
   const keys: string[] = [];
@@ -126,17 +139,22 @@ export async function buildPdf(input: DocInput): Promise<DocResult> {
   const t = (s: unknown) => pdfSafe(s === null || s === undefined ? "" : String(s), replaced);
   const currency = t(input.currency ?? "").trim();
   const doc = await PDFDocument.create();
+  const list = Boolean(input.list);
+  const colCount = input.rows?.length ? new Set(input.rows.flatMap((r) => Object.keys(r))).size : 0;
+  const PAGE = list && colCount > 5 ? { w: A4.h, h: A4.w } : A4;
   doc.setTitle(t(input.title));
   doc.setProducer("Conduit");
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  let page: PDFPage = doc.addPage([A4.w, A4.h]);
-  let y = A4.h - M;
-  const width = A4.w - 2 * M;
+  let page: PDFPage = doc.addPage([PAGE.w, PAGE.h]);
+  let y = PAGE.h - M;
+  const width = PAGE.w - 2 * M;
+  let onNewPage = () => {};
   const newPage = () => {
-    page = doc.addPage([A4.w, A4.h]);
-    y = A4.h - M;
+    page = doc.addPage([PAGE.w, PAGE.h]);
+    y = PAGE.h - M;
+    onNewPage();
   };
   const need = (h: number) => {
     if (y - h < M + 20) newPage();
@@ -152,7 +170,7 @@ export async function buildPdf(input: DocInput): Promise<DocResult> {
   // Header: sender top right, title left.
   if (input.from) {
     const lines = wrap(t(input.from), font, 9, 200);
-    lines.forEach((l, i) => page.drawText(l, { x: A4.w - M - font.widthOfTextAtSize(l, 9), y: y - 9 - i * 12, size: 9, font, color: MUTED }));
+    lines.forEach((l, i) => page.drawText(l, { x: PAGE.w - M - font.widthOfTextAtSize(l, 9), y: y - 9 - i * 12, size: 9, font, color: MUTED }));
   }
   text(t(input.title), 20, { f: bold, w: width - 210, gap: 8 });
   if (input.reference) text(t(input.reference), 10, { color: MUTED });
@@ -170,35 +188,52 @@ export async function buildPdf(input: DocInput): Promise<DocResult> {
   // Table
   let total: number | null = null;
   if (input.rows?.length) {
-    const tbl = tableOf(input.rows);
+    const tbl = list ? listOf(input.rows) : tableOf(input.rows);
     total = tbl.total;
     const cols = tbl.header.length;
-    // First column gets the most room; the others share the rest.
-    const firstW = cols > 1 ? Math.max(width * 0.4, width - (cols - 1) * 85) : width;
-    const otherW = cols > 1 ? (width - firstW) / (cols - 1) : 0;
-    const xs = tbl.header.map((_, i) => (i === 0 ? M : M + firstW + (i - 1) * otherW));
-    const ws = tbl.header.map((_, i) => (i === 0 ? firstW : otherW));
+    const size = list ? (cols > 10 ? 7 : cols > 7 ? 8 : 9) : 9.5;
+    const lineH = list ? size + 2.5 : 12;
+    let ws: number[];
+    if (list) {
+      // Each column gets room by how long its text usually is (header included), within limits.
+      const est = tbl.header.map((h, i) => {
+        const lens = [String(h).length, ...tbl.body.map((r) => String(r[i] ?? "").length)].sort((a, b) => a - b);
+        return Math.min(40, Math.max(4, lens[Math.floor(lens.length * 0.9)] ?? 4));
+      });
+      const sum = est.reduce((a, b) => a + b, 0);
+      ws = est.map((e) => (e / sum) * width);
+    } else {
+      // First column gets the most room; the others share the rest.
+      const firstW = cols > 1 ? Math.max(width * 0.4, width - (cols - 1) * 85) : width;
+      const otherW = cols > 1 ? (width - firstW) / (cols - 1) : 0;
+      ws = tbl.header.map((_, i) => (i === 0 ? firstW : otherW));
+    }
+    const xs = ws.map((_, i) => M + ws.slice(0, i).reduce((a, b) => a + b, 0));
     const cellText = (v: unknown, i: number) => {
       const n = num(v);
       return tbl.moneyCols.has(i) && n !== null ? money(n, currency) : t(v ?? "");
     };
+    const pad = list ? 3 : 5;
     const drawRow = (cells: string[], isHead: boolean) => {
-      const wrapped = cells.map((c, i) => wrap(c, isHead ? bold : font, 9.5, ws[i]! - 10));
-      const h = Math.max(...wrapped.map((w) => w.length)) * 12 + 10;
+      const wrapped = cells.map((c, i) => wrap(c, isHead ? bold : font, size, ws[i]! - 2 * pad));
+      const h = Math.max(...wrapped.map((w) => w.length)) * lineH + (list ? 7 : 10);
       need(h);
       if (isHead) page.drawRectangle({ x: M, y: y - h, width, height: h, color: HEAD_BG });
       wrapped.forEach((lines, i) =>
         lines.forEach((l, k) => {
-          const right = i > 0 && !isHead && num(cells[i]!.replace(currency, "")) !== null;
-          const x = right ? xs[i]! + ws[i]! - 5 - (isHead ? bold : font).widthOfTextAtSize(l, 9.5) : xs[i]! + 5;
-          page.drawText(l, { x, y: y - 15 - k * 12, size: 9.5, font: isHead ? bold : font, color: INK });
+          const right = !list && i > 0 && !isHead && num(cells[i]!.replace(currency, "")) !== null;
+          const x = right ? xs[i]! + ws[i]! - pad - (isHead ? bold : font).widthOfTextAtSize(l, size) : xs[i]! + pad;
+          page.drawText(l, { x, y: y - (list ? size + 3.5 : 15) - k * lineH, size, font: isHead ? bold : font, color: INK });
         }),
       );
       y -= h;
       page.drawLine({ start: { x: M, y }, end: { x: M + width, y }, thickness: 0.6, color: LINE });
     };
-    drawRow(tbl.header.map((h) => t(h)), true);
+    const head = tbl.header.map((h) => t(h));
+    drawRow(head, true);
+    if (list) onNewPage = () => drawRow(head, true);
     for (const r of tbl.body) drawRow(r.map(cellText), false);
+    onNewPage = () => {};
     if (total !== null) {
       need(24);
       const label = `Total  ${money(total, currency)}`;
@@ -221,7 +256,7 @@ export async function buildPdf(input: DocInput): Promise<DocResult> {
   const pages = doc.getPages();
   pages.forEach((p, i) => {
     const s = `${i + 1} / ${pages.length}`;
-    p.drawText(s, { x: A4.w - M - font.widthOfTextAtSize(s, 8), y: M / 2, size: 8, font, color: MUTED });
+    p.drawText(s, { x: PAGE.w - M - font.widthOfTextAtSize(s, 8), y: M / 2, size: 8, font, color: MUTED });
   });
 
   const bytes = await doc.save();

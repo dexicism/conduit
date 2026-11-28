@@ -80,6 +80,8 @@ export interface SelectField extends FieldBase {
   kind: "select";
   options: ReadonlyArray<{ value: string; label: string }>;
   default?: string;
+  /** In an agent tool, the value may be an AI placeholder: the AI picks one of the options. */
+  aiFill?: boolean;
 }
 
 export interface JsonField extends FieldBase {

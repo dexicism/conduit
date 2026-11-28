@@ -3,6 +3,7 @@ import type { ExecContext, Executor, Item } from "../types";
 import { SHARED_MEMORY, StepError } from "../types";
 import { toText } from "../values";
 import { account, readTable, spreadsheetIdOf } from "./apps";
+import { buildPdf } from "../pdf";
 import { parseRows } from "./documents";
 
 type Json = Record<string, unknown>;
@@ -122,6 +123,21 @@ export const excelExecutor: Executor = async (ctx) => {
     }
     if (rows.length > 20_000) throw new StepError("At most 20,000 rows");
     const name = toText(p.sheetName) || "Sheet1";
+    if (toText(p.format).trim().toLowerCase() === "pdf") {
+      if (rows.length > 3000) throw new StepError("At most 3,000 rows in a PDF: filter the rows, or make an Excel file instead");
+      const title = toText(p.title).trim() || (name !== "Sheet1" ? name : p.source === "sheet" ? toText(p.sheet) : "") || "Table";
+      const pdf = await buildPdf({
+        title,
+        reference: `${rows.length} row${rows.length === 1 ? "" : "s"}`,
+        rows: rows.map((r) => Object.fromEntries(header.map((h, k) => [h, r[k] ?? ""]))),
+        list: true,
+      });
+      if (pdf.replaced.length) ctx.log(`Couldn't show these characters, used "?" instead: ${pdf.replaced.join(" ")}`);
+      const base = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "table";
+      const file = { fileName: fileName(p.fileName, base, "pdf"), mimetype: "application/pdf", size: pdf.size, rows: rows.length, pages: pdf.pages, base64: pdf.base64 };
+      main.push(result(ctx, i, p, file, await maybeSend(ctx, p, file)));
+      continue;
+    }
     const x = buildXlsx([{ name, header, rows }]);
     const file = { fileName: fileName(p.fileName, name === "Sheet1" ? "export" : name, "xlsx"), mimetype: XLSX, size: x.size, rows: rows.length, base64: x.base64 };
     main.push(result(ctx, i, p, file, await maybeSend(ctx, p, file)));
