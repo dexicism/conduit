@@ -201,9 +201,18 @@ export function messageText(m: Record<string, any>): string | null {
     m.buttonsResponseMessage?.selectedDisplayText ??
     m.listResponseMessage?.title ??
     m.templateButtonReplyMessage?.selectedDisplayText ??
-    (loc ? [loc.name, loc.address].filter(Boolean).join(", ") || null : null) ??
+    (loc ? locationText(loc) : null) ??
     null
   );
+}
+
+/** A shared location as text: its name and address, plus a map link when it has coordinates (a pin often has nothing else). */
+function locationText(loc: Record<string, any>): string | null {
+  const place = [loc.name, loc.address].filter(Boolean).join(", ");
+  const lat = Number(loc.degreesLatitude);
+  const lng = Number(loc.degreesLongitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0) || loc.degreesLatitude == null) return place || null;
+  return `Location: ${place ? place + " " : ""}https://maps.google.com/?q=${lat},${lng}`;
 }
 
 function contextInfo(m: Record<string, any>): Record<string, any> | undefined {

@@ -237,6 +237,69 @@ async function readHeader(services: EngineServices, token: string | undefined, i
   return header;
 }
 
+/**
+ * Values are written as if typed in, so dates and numbers become real dates and
+ * numbers. But Sheets also reads text starting with + or @ (or - before a word)
+ * as a formula: "+91 98181 50299" turns into #ERROR!. Those are kept as text.
+ * Text starting with = is left alone, so formulas still work.
+ */
+export function asTyped(v: string | null): string | null {
+  if (v === null) return null;
+  const s = v.trimStart();
+  if (/^[+@]/.test(s) || (/^-/.test(s) && !/^-\s*[\d.,]+%?$/.test(s))) return `'${v}`;
+  return v;
+}
+
+/** One add at a time per tab (in this process), so two messages at once can't pick the same row. */
+const addLocks = new Map<string, Promise<unknown>>();
+
+/**
+ * Adds a row in the first row after the data. Many sheets are prepared with
+ * formulas filled down (a serial number, "Follow-up Due"): Google's append would
+ * insert a new row above those, without the formulas. Writing into that row
+ * instead keeps them, because only the cells we fill are written (null cells
+ * are skipped). Falls back to append when the sheet has no room left.
+ */
+async function addRow(services: EngineServices, token: string | undefined, id: string, sheet: unknown, row: Array<string | null>): Promise<{ row: number | null; updatedRange: string }> {
+  const key = `${id}|${toText(sheet)}`;
+  const run = async () => {
+    const { rows } = await readTableUncached(services, token, id, sheet, 20_000);
+    const cols = row.map((v, c) => (v === null ? -1 : c)).filter((c) => c >= 0);
+    let last = -1;
+    rows.forEach((r, i) => {
+      if (cols.some((c) => (r[c] ?? "").trim())) last = i;
+    });
+    const target = last + 3; // the header is row 1, data row i is row i + 2
+    const range = sheetRange(sheet, `A${target}:${columnLetter(row.length - 1)}${target}`);
+    const put = await callJson(services, {
+      method: "PUT",
+      url: sheetsUrl(id, range, "?valueInputOption=USER_ENTERED"),
+      headers: { authorization: `Bearer ${token}` },
+      body: { values: [row.map(asTyped)] },
+    });
+    if (put.status < 400) return { row: target, updatedRange: toText((put.body as { updatedRange?: string }).updatedRange) || range };
+    if (put.status !== 400) throw googleError(put, "Google Sheets");
+    // Usually: the row is past the end of the grid. Let Google add one.
+    const res = await callJson(services, {
+      method: "POST",
+      url: sheetsUrl(id, sheetRange(sheet, "A1"), ":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"),
+      headers: { authorization: `Bearer ${token}` },
+      body: { values: [row.map(asTyped)] },
+    });
+    if (res.status >= 400) throw googleError(res, "Google Sheets");
+    const updatedRange = toText((res.body as { updates?: { updatedRange?: string } }).updates?.updatedRange);
+    const n = Number(/![A-Z]+(\d+)/.exec(updatedRange)?.[1] ?? NaN);
+    return { row: Number.isFinite(n) ? n : null, updatedRange };
+  };
+  const done = (addLocks.get(key) ?? Promise.resolve()).catch(() => undefined).then(run);
+  addLocks.set(key, done);
+  try {
+    return await done;
+  } finally {
+    if (addLocks.get(key) === done) addLocks.delete(key);
+  }
+}
+
 const sheetsAppend: AppAction = async (p, services) => {
   const { accessToken } = await account(p, "google", services);
   const id = spreadsheetIdOf(p.spreadsheetId);
@@ -253,21 +316,13 @@ const sheetsAppend: AppAction = async (p, services) => {
     row[col] = toText(c.value);
     values[header[col]!] = row[col];
   }
-  const res = await callJson(services, {
-    method: "POST",
-    url: sheetsUrl(id, sheetRange(p.sheet, "A1"), ":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"),
-    headers: { authorization: `Bearer ${accessToken}` },
-    body: { values: [row] },
-  });
-  if (res.status >= 400) throw googleError(res, "Google Sheets");
-  const updatedRange = toText((res.body as { updates?: { updatedRange?: string } }).updates?.updatedRange);
-  const rowNum = Number(/![A-Z]+(\d+)/.exec(updatedRange)?.[1] ?? NaN);
+  const { row: rowNum, updatedRange } = await addRow(services, accessToken, id, p.sheet, row);
   await logActivity(services, accessToken, id, p, {
-    row: Number.isFinite(rowNum) ? rowNum : null,
+    row: rowNum,
     name: nameOf(header, row),
     change: `Added: ${Object.entries(values).filter(([, v]) => toText(v).trim()).map(([k, v]) => `${k}=${toText(v)}`).join("; ")}`,
   });
-  return { updatedRange, row: Number.isFinite(rowNum) ? rowNum : null, values };
+  return { updatedRange, row: rowNum, values };
 };
 
 const sheetsRead: AppAction = async (p, services) => {
@@ -481,15 +536,8 @@ const sheetsUpdate: AppAction = async (p, services) => {
         const row: Array<string | null> = header.map(() => null);
         row[col] = wanted;
         for (const c of changes) row[c.col] = c.value;
-        const res = await callJson(services, {
-          method: "POST",
-          url: sheetsUrl(id, sheetRange(p.sheet, "A1"), ":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"),
-          headers: { authorization: `Bearer ${accessToken}` },
-          body: { values: [row] },
-        });
-        if (res.status >= 400) throw googleError(res, "Google Sheets");
-        const updatedRange = toText((res.body as { updates?: { updatedRange?: string } }).updates?.updatedRange);
-        const added = Number(/![A-Z]+(\d+)/.exec(updatedRange)?.[1] ?? NaN);
+        const { row: addedRow } = await addRow(services, accessToken, id, p.sheet, row);
+        const added = addedRow ?? NaN;
         await logActivity(services, accessToken, id, p, { row: Number.isFinite(added) ? added : null, name: nameOf(header, row), change: `Added: ${changes.map((c) => `${header[c.col]}=${c.value}`).join("; ")}` });
         return { action: "added", ...rowObject(header, row.map((v) => v ?? ""), Number.isFinite(added) ? added : rows.length + 2) };
       }
@@ -506,7 +554,7 @@ const sheetsUpdate: AppAction = async (p, services) => {
     headers: { authorization: `Bearer ${accessToken}` },
     body: {
       valueInputOption: "USER_ENTERED",
-      data: changes.map((c) => ({ range: sheetRange(p.sheet, `${columnLetter(c.col)}${rowNumber}`), values: [[c.value]] })),
+      data: changes.map((c) => ({ range: sheetRange(p.sheet, `${columnLetter(c.col)}${rowNumber}`), values: [[asTyped(c.value)]] })),
     },
   });
   if (res.status >= 400) throw googleError(res, "Google Sheets");

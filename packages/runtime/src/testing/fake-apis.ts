@@ -548,6 +548,22 @@ export function startFakeApis(port = 0): Promise<FakeApis> {
           const n = rows.length;
           return send(res, 200, { updates: { updatedRange: `${sheet}!A${n}:${String.fromCharCode(64 + rows[0]!.length)}${n}`, updatedRows: 1 } });
         }
+        if (req.method === "PUT") {
+          // values.update of one row: null cells are skipped, like Google does.
+          const cm = /^([A-Z]+)(\d+)/.exec(cells);
+          if (!cm) return send(res, 400, { error: { code: 400, message: `Unable to parse range: ${cells}` } });
+          const col = [...cm[1]!].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+          const r = Number(cm[2]) - 1;
+          while (rows.length <= r) rows.push([]);
+          const row = rows[r]!;
+          (b.values?.[0] ?? []).forEach((v: unknown, k: number) => {
+            if (v === null || v === undefined) return;
+            while (row.length <= col + k) row.push("");
+            row[col + k] = String(v);
+          });
+          while (row.length < rows[0]!.length) row.push("");
+          return send(res, 200, { updatedRange: `${sheet}!${cells}`, updatedRows: 1 });
+        }
         if (cells === "1:1") return send(res, 200, { range: `${sheet}!1:1`, values: rows.slice(0, 1) });
         const max = Number(/(\d+)$/.exec(cells)?.[1] ?? rows.length);
         return send(res, 200, { range: `${sheet}!${cells}`, values: rows.slice(0, max) });

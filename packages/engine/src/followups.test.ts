@@ -1,7 +1,7 @@
 import { workflowGraphSchema, type WorkflowGraph } from "@conduit/core";
 import { defaultParameters, getDefinition } from "@conduit/nodes";
 import { describe, expect, it, vi } from "vitest";
-import { fromLocalIso } from "./executors/apps";
+import { asTyped, fromLocalIso } from "./executors/apps";
 import { initialState, runExecution } from "./runner";
 import type { EngineServices, HttpRequest, Item, MemoryTurn } from "./types";
 
@@ -28,6 +28,15 @@ function fakeSheets(tabs: Record<string, string[][]>) {
     const { tab } = parse(m[1]!);
     const rows = tabs[tab];
     if (!rows) return { status: 400, headers: {}, body: { error: { code: 400, message: `Unable to parse range: ${tab}` } } };
+    if (r.method === "PUT") {
+      // Writes one row; null cells are skipped, like Google does.
+      const { col, row } = parse(m[1]!);
+      while (rows.length <= row) rows.push([]);
+      (body.values[0] as Array<string | null>).forEach((v, k) => {
+        if (v !== null) rows[row]![col + k] = v;
+      });
+      return { status: 200, headers: {}, body: { updatedRange: decodeURIComponent(m[1]!) } };
+    }
     if (m[2]) {
       rows.push((body.values[0] as Array<string | null>).map((v) => v ?? ""));
       return { status: 200, headers: {}, body: { updates: { updatedRange: `${tab}!A${rows.length}:J${rows.length}` } } };
@@ -97,6 +106,17 @@ function setup() {
 }
 
 describe("follow-ups", () => {
+  it("keeps phone numbers like +91 98000 00101 as text, so Sheets doesn't read them as a formula", () => {
+    expect(asTyped("+91 98000 00101")).toBe("'+91 98000 00101");
+    expect(asTyped("@home")).toBe("'@home");
+    expect(asTyped("- called twice")).toBe("'- called twice");
+    expect(asTyped("-250")).toBe("-250");
+    expect(asTyped("9800000101")).toBe("9800000101");
+    expect(asTyped("=SUM(A1:A3)")).toBe("=SUM(A1:A3)");
+    expect(asTyped("28-11-26")).toBe("28-11-26");
+    expect(asTyped(null)).toBeNull();
+  });
+
   it("reads reminder times back in our format and in the formats Google Sheets shows dates in", () => {
     const want = new Date(2026, 10, 26, 15, 5).getTime();
     for (const v of ["2026-11-26 15:05", "26/11/2026 15:05:00", "26-11-26 15:05", "11/26/2026 15:05", " 26.11.2026, 15:05 "]) expect(fromLocalIso(v)).toBe(want);
@@ -164,6 +184,18 @@ describe("follow-ups", () => {
     expect((await step("app.sheets.text", { sheet: "Bot Rules" }))[0]!.lines).toBe(2);
     expect((await step("app.sheets.text", { sheet: "Bot Rules", cacheMinutes: 0 }))[0]!.lines).toBe(3);
     expect(await step("app.sheets.text", { sheet: "No such tab", cacheMinutes: 0 })).toEqual([{ text: "", lines: 0, missing: true }]);
+  });
+
+  it("adds a lead in the first free row, keeping what's already prepared there (formulas filled down), and keeps +91 numbers as text", async () => {
+    const { sheets, step } = setup();
+    // Rows 3 and 4 are prepared: only the Due column has something (a formula, in a real sheet).
+    sheets.tabs.Enquiries = [["Owner Name", "Phone No.", "Status", "Due"], ["Mohan", "9800000101", "Contacted", "Due today"], ["", "", "", "x"], ["", "", "", "x"]];
+    const [out] = await step("app.sheets.append", { sheet: "Enquiries", columns: [{ key: "Owner Name", value: "Kiran" }, { key: "Phone No.", value: "+91 98000 00102" }, { key: "Status", value: "New" }] });
+    expect(out!.row).toBe(3);
+    expect(sheets.tabs.Enquiries![2]).toEqual(["Kiran", "'+91 98000 00102", "New", "x"]);
+    await step("app.sheets.append", { sheet: "Enquiries", columns: [{ key: "Owner Name", value: "Vikas" }] });
+    expect(sheets.tabs.Enquiries![3]).toEqual(["Vikas", "", "", "x"]);
+    expect(sheets.tabs.Enquiries).toHaveLength(4);
   });
 
   it("reads a tab once per AI turn, and again after a change", async () => {

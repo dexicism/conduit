@@ -140,6 +140,8 @@ describe("message parsing helpers", () => {
     const inner = unwrapMessage({ ephemeralMessage: { message: { viewOnceMessageV2: { message: { imageMessage: { caption: "bill" } } } } } });
     expect(messageText(inner)).toBe("bill");
     expect(messageText({ locationMessage: { name: "Shop", address: "MG Road" } })).toBe("Shop, MG Road");
+    expect(messageText({ locationMessage: { degreesLatitude: 28.4595, degreesLongitude: 77.0266 } })).toBe("Location: https://maps.google.com/?q=28.4595,77.0266");
+    expect(messageText({ liveLocationMessage: { name: "Site", degreesLatitude: 28.5, degreesLongitude: 77.1 } })).toBe("Location: Site https://maps.google.com/?q=28.5,77.1");
   });
 });
 
